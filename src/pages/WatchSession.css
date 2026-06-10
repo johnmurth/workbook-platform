@@ -1,0 +1,380 @@
+/* src/pages/WatchSession.css */
+.watch-session-page {
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+/* Live Header */
+.live-header {
+  background: linear-gradient(135deg, var(--ink) 0%, var(--ink-soft) 100%);
+  color: white;
+  padding: 24px 0;
+  border-bottom: 3px solid #e74c3c;
+}
+
+.live-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(231, 76, 60, 0.2);
+  padding: 4px 12px;
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+  width: fit-content;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  background: #e74c3c;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+.live-header h1 {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+}
+
+.student-name {
+  opacity: 0.8;
+  font-size: 0.9rem;
+}
+
+.student-status {
+  text-align: right;
+}
+
+.status-indicator {
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.status-indicator.online {
+  color: #2ecc71;
+}
+
+.status-indicator.offline {
+  color: #95a5a6;
+}
+
+.last-active {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* Watch Layout */
+.watch-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 32px;
+  padding: 32px 0;
+}
+
+/* Progress Sidebar */
+.stats-card, .actions-card, .info-card {
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.stats-card h3, .actions-card h3, .info-card h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  margin-bottom: 16px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.stat-value {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--accent);
+}
+
+.progress-bar-large {
+  background: var(--paper-3);
+  border-radius: 100px;
+  height: 8px;
+  margin: 12px 0 20px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: var(--accent);
+  height: 100%;
+  transition: width 0.5s ease;
+  border-radius: 100px;
+}
+
+.actions-card button {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.info-card p {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  margin: 12px 0;
+  line-height: 1.5;
+}
+
+/* Answers Feed */
+.feed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--paper-3);
+}
+
+.feed-header h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.feed-stats {
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.answers-container {
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.answers-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.answers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.answer-card {
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.answer-card:hover {
+  transform: translateX(4px);
+  box-shadow: var(--shadow);
+}
+
+.answer-card.selected {
+  border-left-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.answer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.question-badge {
+  background: var(--paper-2);
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.answer-time {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+}
+
+.answer-content {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--ink);
+  margin-bottom: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.empty-answer {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.answer-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-ghost-sm {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.btn-ghost-sm:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+/* Empty Feed */
+.empty-feed {
+  text-align: center;
+  padding: 60px 32px;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-feed h3 {
+  margin-bottom: 8px;
+}
+
+.empty-feed p {
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+  margin: 8px 0;
+}
+
+/* Live Footer */
+.live-footer {
+  background: #fff;
+  border-top: 1px solid var(--paper-3);
+  padding: 12px 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 90;
+}
+
+.footer-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #2ecc71;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.session-id {
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+/* New Answer Animation */
+.answer-card.new {
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .watch-layout {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  
+  .progress-sidebar {
+    order: 2;
+  }
+  
+  .answers-feed {
+    order: 1;
+  }
+  
+  .stats-card, .actions-card, .info-card {
+    margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .live-header-content {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .student-status {
+    text-align: center;
+  }
+  
+  .answers-container {
+    max-height: 500px;
+  }
+  
+  .footer-content {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+}

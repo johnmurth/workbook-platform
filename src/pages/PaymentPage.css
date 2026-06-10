@@ -1,0 +1,139 @@
+/* src/pages/PaymentPage.css */
+.payment-page {
+  min-height: calc(100vh - var(--nav-h));
+  padding: 48px 0;
+  background: linear-gradient(135deg, var(--paper) 0%, var(--accent-bg) 100%);
+}
+
+.payment-card {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 40px;
+  background: #fff;
+}
+
+.payment-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.payment-header h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.payment-header p {
+  color: var(--ink-muted);
+}
+
+.workbook-summary {
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  background: var(--paper);
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+  border: 1px solid var(--paper-3);
+}
+
+.summary-icon {
+  font-size: 3rem;
+}
+
+.summary-details h3 {
+  font-size: 1.2rem;
+  margin-bottom: 4px;
+}
+
+.summary-details .lecturer {
+  color: var(--accent);
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+}
+
+.summary-details .description {
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+}
+
+.price-breakdown {
+  border-top: 1px solid var(--paper-3);
+  border-bottom: 1px solid var(--paper-3);
+  padding: 20px 0;
+  margin-bottom: 24px;
+}
+
+.price-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.price-row.total {
+  font-weight: 700;
+  font-size: 1.2rem;
+  border-top: 1px solid var(--paper-3);
+  margin-top: 8px;
+  padding-top: 16px;
+}
+
+.total-amount {
+  color: var(--accent);
+  font-size: 1.3rem;
+}
+
+.payment-methods {
+  background: var(--accent-bg);
+  padding: 20px;
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+}
+
+.payment-methods h4 {
+  margin-bottom: 12px;
+  color: var(--accent);
+}
+
+.demo-note {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.payment-actions {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.payment-actions button {
+  flex: 1;
+}
+
+.payment-info {
+  background: var(--paper-2);
+  padding: 16px;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.payment-info p {
+  margin: 8px 0;
+}
+
+@media (max-width: 640px) {
+  .payment-card {
+    padding: 24px;
+  }
+  
+  .workbook-summary {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .payment-actions {
+    flex-direction: column;
+  }
+}

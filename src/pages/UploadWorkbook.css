@@ -1,0 +1,148 @@
+/* src/pages/UploadWorkbook.css */
+.upload-page {
+  min-height: calc(100vh - var(--nav-h));
+  padding: 48px 0 80px;
+  background: linear-gradient(135deg, var(--paper) 0%, var(--paper-2) 100%);
+}
+
+.upload-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.upload-header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--ink);
+}
+
+.upload-header p {
+  font-size: 1.1rem;
+  color: var(--ink-muted);
+}
+
+.upload-card {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 40px;
+  background: #fff;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.file-upload-area {
+  border: 2px dashed var(--paper-3);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  transition: all 0.2s;
+  background: var(--paper);
+}
+
+.file-upload-area:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.file-input {
+  display: none;
+}
+
+.file-label {
+  cursor: pointer;
+  display: block;
+  padding: 20px;
+}
+
+.file-selected {
+  color: var(--accent);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.file-placeholder {
+  color: var(--ink-muted);
+}
+
+.progress-container {
+  margin: 20px 0;
+}
+
+.progress-bar {
+  background: var(--paper-3);
+  border-radius: 100px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: var(--accent);
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 100px;
+}
+
+.progress-text {
+  display: block;
+  text-align: center;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.form-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.upload-tips {
+  max-width: 700px;
+  margin: 40px auto 0;
+  padding: 24px;
+  background: var(--accent-bg);
+  border-radius: var(--radius);
+  border-left: 4px solid var(--accent);
+}
+
+.upload-tips h4 {
+  margin-bottom: 12px;
+  color: var(--accent);
+}
+
+.upload-tips ul {
+  margin-left: 20px;
+  color: var(--ink-soft);
+}
+
+.upload-tips li {
+  margin: 8px 0;
+}
+
+@media (max-width: 640px) {
+  .upload-card {
+    padding: 24px;
+  }
+  
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  
+  .form-actions {
+    flex-direction: column;
+  }
+  
+  .form-actions button {
+    width: 100%;
+  }
+}

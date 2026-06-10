@@ -1,0 +1,41 @@
+/* src/pages/AuthPage.css */
+.auth-page {
+  min-height: calc(100vh - var(--nav-h));
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 24px;
+  background: linear-gradient(160deg, var(--paper) 60%, var(--accent-bg) 100%);
+}
+.auth-card {
+  width: 100%; max-width: 420px;
+  padding: 40px 36px;
+}
+.auth-title {
+  font-size: 1.8rem; font-weight: 700;
+  margin-bottom: 6px;
+}
+.auth-sub {
+  color: var(--ink-muted); font-size: 0.95rem;
+  margin-bottom: 28px;
+}
+.auth-footer-text {
+  text-align: center; margin-top: 20px;
+  font-size: 0.9rem; color: var(--ink-muted);
+}
+.auth-link { color: var(--accent); font-weight: 500; }
+.auth-link:hover { text-decoration: underline; }
+
+.role-toggle {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.role-btn {
+  padding: 12px; border-radius: var(--radius-sm);
+  border: 2px solid var(--paper-3);
+  background: var(--paper); color: var(--ink-soft);
+  font-size: 0.9rem; font-weight: 500;
+  transition: all 0.15s; cursor: pointer;
+}
+.role-btn.active {
+  border-color: var(--accent); background: var(--accent-bg);
+  color: var(--accent);
+}
+.role-btn:hover:not(.active) { border-color: var(--ink-muted); }

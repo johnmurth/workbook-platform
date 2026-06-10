@@ -1,0 +1,522 @@
+/* src/pages/SessionPage.css */
+.session-page {
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+/* Header */
+.session-header {
+  background: #fff;
+  border-bottom: 1px solid var(--paper-3);
+  position: sticky;
+  top: var(--nav-h);
+  z-index: 90;
+  padding: 16px 0;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.session-header h1 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.lecturer-info {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.save-status {
+  min-width: 80px;
+  font-size: 0.85rem;
+}
+
+.saving {
+  color: var(--gold);
+}
+
+.saved {
+  color: var(--accent);
+}
+
+/* Tabs */
+.session-tabs {
+  background: #fff;
+  border-bottom: 1px solid var(--paper-3);
+  padding: 0;
+}
+
+.session-tabs .container {
+  display: flex;
+  gap: 8px;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 12px 24px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.tab-btn:hover {
+  color: var(--accent);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+}
+
+/* Document Viewer */
+.document-viewer-container {
+  padding: 24px 0 48px;
+}
+
+.document-instructions {
+  background: var(--accent-bg);
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  font-size: 0.85rem;
+  color: var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+.document-viewer {
+  padding: 32px;
+  background: #fff;
+  min-height: 500px;
+  overflow-x: auto;
+}
+
+/* HTML Document Viewer */
+.html-viewer {
+  font-family: var(--font-body);
+  line-height: 1.6;
+}
+
+.html-viewer h1, 
+.html-viewer h2, 
+.html-viewer h3 {
+  margin: 20px 0 12px;
+}
+
+.html-viewer p {
+  margin: 12px 0;
+}
+
+.html-viewer table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+
+.html-viewer th,
+.html-viewer td {
+  border: 1px solid var(--paper-3);
+  padding: 10px;
+  text-align: left;
+}
+
+.html-viewer th {
+  background: var(--paper-2);
+  font-weight: 600;
+}
+
+/* Editable Blanks */
+.editable-blank {
+  display: inline-block;
+  min-width: 80px;
+  background: var(--accent-bg);
+  border: 2px dashed var(--accent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin: 0 4px;
+  cursor: text;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.editable-blank:focus {
+  outline: none;
+  background: #fff;
+  border-color: var(--accent-2);
+}
+
+/* Fillable Tables */
+.fillable-table td {
+  position: relative;
+}
+
+.fillable-table td:empty::before {
+  content: '______';
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+/* PDF Viewer */
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.pdf-page {
+  background: #fff;
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pdf-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Answers Summary */
+.answers-summary-container {
+  padding: 24px 0 48px;
+}
+
+.answers-header {
+  margin-bottom: 24px;
+}
+
+.answers-header h2 {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+}
+
+.answers-header p {
+  color: var(--ink-muted);
+}
+
+.answers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+.answer-card {
+  padding: 20px;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.answer-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.answer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--paper-3);
+}
+
+.answer-number {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.answer-id {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  font-family: monospace;
+}
+
+.answer-content {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.empty-answer {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.empty-document {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.empty-answers {
+  text-align: center;
+  padding: 60px 32px;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+/* Footer */
+.session-footer {
+  background: #fff;
+  border-top: 1px solid var(--paper-3);
+  padding: 12px 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 90;
+}
+
+.footer-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.progress-info {
+  display: flex;
+  gap: 24px;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.progress-info span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .header-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .session-tabs .container {
+    justify-content: center;
+  }
+  
+  .tab-btn {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+  }
+  
+  .document-viewer {
+    padding: 16px;
+  }
+  
+  .answers-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .progress-info {
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+  
+  .footer-content {
+    flex-direction: column-reverse;
+  }
+  /* Enhanced fillable elements */
+  .fillable-blank {
+    display: inline-block;
+    min-width: 100px;
+    background: #fef9e6;
+    border: 1px dashed #1a6b3c;
+    border-radius: 4px;
+    padding: 6px 10px;
+    margin: 0 4px;
+    cursor: text;
+    font-family: inherit;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+  }
+
+  .fillable-blank:focus {
+    outline: none;
+    background: #fff;
+    border-color: #25a05a;
+    box-shadow: 0 0 0 2px rgba(37, 160, 90, 0.2);
+  }
+
+  .fillable-table-cell {
+    display: block;
+    min-width: 120px;
+  }
+
+  /* Checkboxes - ☐ / ✓ */
+  .fillable-checkbox {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    text-align: center;
+    font-size: 1.1rem;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.1s;
+    border-radius: 4px;
+  }
+
+  .fillable-checkbox:hover {
+    transform: scale(1.1);
+    background: #e8f5ee;
+  }
+
+  .fillable-checkbox[data-checked="false"] {
+    color: #7a7a7a;
+  }
+
+  .fillable-checkbox[data-checked="true"] {
+    color: #1a6b3c;
+    font-weight: bold;
+  }
+
+  /* Radio buttons - ○ / ● */
+  .fillable-radio {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    text-align: center;
+    font-size: 1.1rem;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.1s;
+    border-radius: 50%;
+  }
+
+  .fillable-radio:hover {
+    transform: scale(1.1);
+    background: #e8f5ee;
+  }
+
+  .fillable-radio[data-selected="false"] {
+    color: #7a7a7a;
+  }
+
+  .fillable-radio[data-selected="true"] {
+    color: #1a6b3c;
+    font-weight: bold;
+  }
+
+  /* Radio group container styling */
+  .radio-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 4px;
+  }
+
+  /* Table cell styling */
+  .html-viewer td .fillable-blank {
+    width: 100%;
+    min-width: 80px;
+  }
+
+  /* Question mark detection styling */
+  .question-answer-area {
+    display: inline;
+  }
+
+  /* Keyboard focus indicator */
+  .fillable-blank:focus-visible {
+    outline: 2px solid #1a6b3c;
+    outline-offset: 2px;
+  }
+
+  .html-viewer th,
+  .html-viewer td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    vertical-align: top;
+  }
+
+  .html-viewer th {
+    background: #f5f5f5;
+    font-weight: 600;
+  }
+
+  .html-viewer td {
+    background: #fff;
+  }
+
+  /* Instructions panel */
+  .document-instructions {
+    background: #e8f5ee;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.85rem;
+    border-left: 4px solid #1a6b3c;
+  }
+
+  .document-instructions p {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .document-instructions code {
+    background: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+
+  .loading-document {
+    text-align: center;
+    padding: 60px;
+    color: #666;
+  }
+
+  .pdf-note {
+    margin-top: 12px;
+    font-size: 0.8rem;
+    color: #999;
+    text-align: center;
+  }
+}
