@@ -55,8 +55,17 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
   const { modifiedBuffer, totalMarkers } = await injectShapeMarkers(arrayBuffer)
 
   // STEP 2: Convert with mammoth
-  const mammoth = await import('mammoth')
-  const result = await mammoth.convertToHtml({ arrayBuffer: modifiedBuffer }, mammothOptions)
+  const mammoth = await import("mammoth")
+  const result = await mammoth.convertToHtml({ arrayBuffer: modifiedBuffer }, {
+    ...mammothOptions,
+    convertImage: mammoth.images.imgElement(async (image) => {
+      const buffer = await image.read("base64")
+      return {
+        src: `data:${image.contentType};base64,${buffer}`,
+        style: "max-width:100%;height:auto;display:block;"
+      }
+    })
+  })
   let html = result.value
 
   // Check how many markers survived — log a sample so we can see exact format
@@ -121,14 +130,24 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
     input.style.cssText = 'display:block;width:100%;background:#fef9e6;border-bottom:2px dotted #1a6b3c;padding:4px 8px;color:#aaa;box-sizing:border-box;'
     input.textContent = '_______________'
 
-    // Replace the text node's parent paragraph if it only has this marker,
-    // otherwise just replace the text node itself
     const parentPara = textNode.parentElement?.closest('p')
-    if (parentPara && parentPara.textContent.trim().replace(/SHAPELINE\d+END/g, '').trim() === '') {
-      parentPara.innerHTML = ''
-      parentPara.appendChild(input)
+    if (parentPara) {
+      const hasImage = parentPara.querySelector('img')
+      const textOnly = parentPara.textContent.trim().replace(/SHAPELINEd+END/g, '').trim()
+
+      if (hasImage) {
+        // Paragraph has an image — keep it, just remove the marker text node and append input after paragraph
+        textNode.parentNode.removeChild(textNode)
+        parentPara.insertAdjacentElement('afterend', input)
+      } else if (!textOnly) {
+        // Paragraph is only the marker — replace contents with input
+        parentPara.innerHTML = ''
+        parentPara.appendChild(input)
+      } else {
+        // Marker shares paragraph with real text — replace just the text node
+        textNode.parentNode.replaceChild(input, textNode)
+      }
     } else {
-      // Inline replacement — rare case where marker shares a paragraph with text
       textNode.parentNode.replaceChild(input, textNode)
     }
   })
