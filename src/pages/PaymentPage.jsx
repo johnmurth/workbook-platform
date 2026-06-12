@@ -1,7 +1,8 @@
 // src/pages/PaymentPage.jsx
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot } from 'firebase/firestore'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
 import Navbar from '../components/shared/Navbar'
@@ -11,11 +12,13 @@ export default function PaymentPage() {
   const { workbookId } = useParams()
   const navigate = useNavigate()
   const { user, profile } = useAuth()
-  
+
   const [workbook, setWorkbook] = useState(null)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
+  const [phone, setPhone] = useState('')
+  const [waitingForPayment, setWaitingForPayment] = useState(false)
 
   // Fetch workbook details
   useEffect(() => {
@@ -37,70 +40,72 @@ export default function PaymentPage() {
     fetchWorkbook()
   }, [workbookId])
 
-  const handlePurchase = async () => {
-    setProcessing(true)
-    setError('')
-
-    try {
-      // 1. Check if already purchased
+  // Check if user has already purchased this workbook (redirect straight to session)
+  useEffect(() => {
+    const checkExisting = async () => {
+      if (!user) return
       const purchaseId = `${user.uid}_${workbookId}`
       const purchaseRef = doc(db, 'purchases', purchaseId)
       const existingPurchase = await getDoc(purchaseRef)
-      
       if (existingPurchase.exists()) {
-        // Already purchased - redirect to existing session
-        const sessionId = existingPurchase.data().sessionId
-        navigate(`/session/${sessionId}`)
-        return
+        navigate(`/session/${existingPurchase.data().sessionId}`)
       }
+    }
+    checkExisting()
+  }, [user, workbookId, navigate])
 
-      // 2. Create a new session for this workbook
-      const sessionData = {
+  // While waiting for payment, listen for the purchase doc to be created by mpesaCallback
+  useEffect(() => {
+    if (!waitingForPayment || !user) return
+
+    const purchaseId = `${user.uid}_${workbookId}`
+    const purchaseRef = doc(db, 'purchases', purchaseId)
+
+    const unsubscribe = onSnapshot(purchaseRef, (snap) => {
+      if (snap.exists() && snap.data().status === 'completed') {
+        navigate(`/session/${snap.data().sessionId}`)
+      }
+    })
+
+    return () => unsubscribe()
+  }, [waitingForPayment, user, workbookId, navigate])
+
+  const handlePurchase = async () => {
+    setError('')
+
+    // Basic phone validation
+    const trimmed = phone.trim()
+    if (!trimmed) {
+      setError('Please enter your M-Pesa phone number.')
+      return
+    }
+    const normalized = trimmed.replace(/^0/, '254').replace(/^\+/, '')
+    if (!/^254\d{9}$/.test(normalized)) {
+      setError('Enter a valid phone number, e.g. 07XXXXXXXX or 2547XXXXXXXX.')
+      return
+    }
+
+    setProcessing(true)
+
+    try {
+      const functions = getFunctions()
+      const initiateMpesaPayment = httpsCallable(functions, 'initiateMpesaPayment')
+
+      const result = await initiateMpesaPayment({
+        phone: normalized,
+        amount: workbook.price,
         workbookId: workbook.id,
-        workbookTitle: workbook.title,
-        workbookUrl: workbook.fileUrl,
-        studentUid: user.uid,
-        studentName: profile?.name || 'Student',
-        lecturerUid: workbook.lecturerUid,
-        lecturerName: workbook.lecturerName,
-        downloadLimit: workbook.downloadLimit || 3,
-        downloadCount: 0,
-        active: true,
-        createdAt: serverTimestamp(),
-        lastActive: serverTimestamp(),
-        answers: {} // Will store student's answers
+      })
+
+      if (result.data?.success) {
+        setWaitingForPayment(true)
+      } else {
+        setError('Failed to initiate payment. Please try again.')
+        setProcessing(false)
       }
-      
-      const sessionRef = await addDoc(collection(db, 'sessions'), sessionData)
-
-      // 3. Create purchase record
-      const purchaseData = {
-        workbookId: workbook.id,
-        workbookTitle: workbook.title,
-        price: workbook.price,
-        studentUid: user.uid,
-        studentName: profile?.name || 'Student',
-        lecturerUid: workbook.lecturerUid,
-        lecturerName: workbook.lecturerName,
-        sessionId: sessionRef.id,
-        purchaseDate: serverTimestamp(),
-        status: 'completed'
-      }
-      
-      await setDoc(doc(db, 'purchases', purchaseId), purchaseData)
-
-      // 4. Update workbook purchase count
-      const workbookRef = doc(db, 'workbooks', workbookId)
-      const currentPurchases = workbook.totalPurchases || 0
-      await setDoc(workbookRef, { totalPurchases: currentPurchases + 1 }, { merge: true })
-
-      // 5. Redirect to the session
-      navigate(`/session/${sessionRef.id}`)
-      
     } catch (err) {
       console.error('Purchase error:', err)
-      setError('Payment failed. Please try again.')
-    } finally {
+      setError(err.message || 'Payment failed. Please try again.')
       setProcessing(false)
     }
   }
@@ -116,7 +121,7 @@ export default function PaymentPage() {
     )
   }
 
-  if (error || !workbook) {
+  if (error && !workbook) {
     return (
       <div>
         <Navbar />
@@ -163,37 +168,62 @@ export default function PaymentPage() {
               </div>
             </div>
 
-            <div className="payment-methods">
-              <h4>Demo Payment</h4>
-              <p className="demo-note">
-                🔧 This is a demo. In production, M-Pesa/Stripe would be integrated.
-                <br />
-                Click "Confirm Demo Purchase" to simulate payment.
-              </p>
-            </div>
+            {waitingForPayment ? (
+              <div className="payment-methods">
+                <h4>📱 Check Your Phone</h4>
+                <p className="demo-note">
+                  An M-Pesa prompt has been sent to <strong>{phone}</strong>.
+                  <br />
+                  Enter your M-Pesa PIN to complete the payment.
+                  <br />
+                  This page will update automatically once payment is confirmed.
+                </p>
+                <div className="payment-actions">
+                  <span className="spinner" /> Waiting for payment confirmation...
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="payment-methods">
+                  <h4>M-Pesa Payment</h4>
+                  <div className="form-group">
+                    <label htmlFor="phone">M-Pesa Phone Number</label>
+                    <input
+                      id="phone"
+                      type="tel"
+                      className="form-control"
+                      placeholder="e.g. 0712345678"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      disabled={processing}
+                    />
+                  </div>
+                </div>
 
-            {error && <div className="error-msg">{error}</div>}
+                {error && <div className="error-msg">{error}</div>}
 
-            <div className="payment-actions">
-              <button 
-                onClick={handlePurchase} 
-                className="btn btn-primary"
-                disabled={processing}
-              >
-                {processing ? (
-                  <><span className="spinner" /> Processing...</>
-                ) : (
-                  '✅ Confirm Demo Purchase'
-                )}
-              </button>
-              <button 
-                onClick={() => navigate('/store')} 
-                className="btn btn-secondary"
-                disabled={processing}
-              >
-                ← Back to Store
-              </button>
-            </div>
+                <div className="payment-actions">
+                  <button
+                    onClick={handlePurchase}
+                    className="btn btn-primary"
+                    disabled={processing}
+                  >
+                    {processing ? (
+                      <><span className="spinner" /> Sending request...</>
+                    ) : (
+                      `📲 Pay KES ${workbook.price?.toLocaleString()} with M-Pesa`
+                    )}
+                  </button>
+                  <button
+                    onClick={() => navigate('/store')}
+                    className="btn btn-secondary"
+                    disabled={processing}
+                  >
+                    ← Back to Store
+                  </button>
+                </div>
+              </>
+            )}
 
             <div className="payment-info">
               <p>💡 After purchase, you'll get immediate access to fill your workbook online.</p>
