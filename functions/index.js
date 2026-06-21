@@ -1,8 +1,8 @@
 /**
  * Cloud Functions for M-Pesa Daraja STK Push integration
  */
-const { setGlobalOptions } = require("firebase-functions");
-const { onRequest, onCall, HttpsError } = require("firebase-functions/https");
+const { setGlobalOptions } = require("firebase-functions/v2");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
@@ -21,14 +21,18 @@ const MPESA_CONSUMER_SECRET = defineSecret("MPESA_CONSUMER_SECRET");
 const MPESA_SHORTCODE = defineSecret("MPESA_SHORTCODE");
 const MPESA_PASSKEY = defineSecret("MPESA_PASSKEY");
 
-// Sandbox base URL — change to api.safaricom.co.ke for production
-const MPESA_BASE_URL = "https://sandbox.safaricom.co.ke";
+// api base URL —  api.safaricom.co.ke for production
+const MPESA_BASE_URL = "https://api.safaricom.co.ke";
 
 // ============================================================
 // HELPER: Get OAuth access token from Daraja
 // ============================================================
 const getAccessToken = async (consumerKey, consumerSecret) => {
-  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64");
+  // Trim to remove any accidental whitespace/newlines from secret values
+  const cleanKey = (consumerKey || "").trim();
+  const cleanSecret = (consumerSecret || "").trim();
+
+  const auth = Buffer.from(`${cleanKey}:${cleanSecret}`).toString("base64");
 
   const response = await fetch(
     `${MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`,
@@ -38,12 +42,19 @@ const getAccessToken = async (consumerKey, consumerSecret) => {
     }
   );
 
+  const text = await response.text();
+
   if (!response.ok) {
-    const text = await response.text();
+    logger.error("Daraja OAuth failed", {
+      status: response.status,
+      body: text,
+      keyLength: cleanKey.length,
+      secretLength: cleanSecret.length,
+    });
     throw new Error(`Failed to get access token: ${response.status} ${text}`);
   }
 
-  const data = await response.json();
+  const data = JSON.parse(text);
   return data.access_token;
 };
 
@@ -67,7 +78,7 @@ const getTimestamp = () => {
 // CALLABLE FUNCTION: initiateMpesaPayment
 // Called from PaymentPage.jsx with { phone, amount, workbookId }
 // ============================================================
-exports.initiateMpesaPayment = onCall(
+exports.initiateMpesaPayment = onCall(  
   {
     secrets: [MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_SHORTCODE, MPESA_PASSKEY],
   },
@@ -93,10 +104,10 @@ exports.initiateMpesaPayment = onCall(
       throw new HttpsError("invalid-argument", "Invalid phone number format.");
     }
 
-    const consumerKey = MPESA_CONSUMER_KEY.value();
-    const consumerSecret = MPESA_CONSUMER_SECRET.value();
-    const shortcode = MPESA_SHORTCODE.value();
-    const passkey = MPESA_PASSKEY.value();
+    const consumerKey = MPESA_CONSUMER_KEY.value().trim();
+    const consumerSecret = MPESA_CONSUMER_SECRET.value().trim();
+    const shortcode = MPESA_SHORTCODE.value().trim();
+    const passkey = MPESA_PASSKEY.value().trim();
 
     try {
       const accessToken = await getAccessToken(consumerKey, consumerSecret);
@@ -105,7 +116,14 @@ exports.initiateMpesaPayment = onCall(
       const password = Buffer.from(`${shortcode}${passkey}${timestamp}`).toString("base64");
 
       // Callback URL — this Cloud Function's mpesaCallback endpoint
-      const callbackUrl = `https://${process.env.GCLOUD_PROJECT || "fofo-4c356"}.cloudfunctions.net/mpesaCallback`;
+      const callbackUrl = `https://us-central1-${process.env.GCLOUD_PROJECT || "fofo-4c356"}.cloudfunctions.net/mpesaCallback`;
+
+      // Lightweight request log — no Password/secrets included
+      logger.info("Initiating STK Push", {
+        shortcode,
+        amount: Math.round(amount),
+        accountReference: `WB-${workbookId}`.substring(0, 12),
+      });
 
       const stkResponse = await fetch(
         `${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`,
@@ -119,10 +137,10 @@ exports.initiateMpesaPayment = onCall(
             BusinessShortCode: shortcode,
             Password: password,
             Timestamp: timestamp,
-            TransactionType: "CustomerPayBillOnline",
+            TransactionType: "CustomerBuyGoodsOnline",
             Amount: Math.round(amount),
             PartyA: normalizedPhone,
-            PartyB: shortcode,
+            PartyB: "3508571",
             PhoneNumber: normalizedPhone,
             CallBackURL: callbackUrl,
             AccountReference: `WB-${workbookId}`.substring(0, 12),
