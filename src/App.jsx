@@ -1,6 +1,7 @@
 // src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './lib/AuthContext'
+import NavbarSpacer from './components/shared/NavbarSpacer'
 
 // Pages
 import LandingPage       from './pages/LandingPage'
@@ -26,44 +27,49 @@ function RequireAuth({ children, role }) {
 
 export default function App() {
   return (
-    <Routes>
-      {/* Public */}
-      <Route path="/"         element={<LandingPage />} />
-      <Route path="/login"    element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-      <Route path="/store"    element={<WorkbookStore />} />
+    <>
+      {/* NavbarSpacer ensures content doesn't hide behind navbar */}
+      <NavbarSpacer />
+      
+      <Routes>
+        {/* Public */}
+        <Route path="/"         element={<LandingPage />} />
+        <Route path="/login"    element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/store"    element={<WorkbookStore />} />
 
-      {/* Payment flow (auth required) */}
-      <Route path="/pay/:workbookId" element={
-        <RequireAuth><PaymentPage /></RequireAuth>
-      }/>
+        {/* Payment flow (auth required) */}
+        <Route path="/pay/:workbookId" element={
+          <RequireAuth><PaymentPage /></RequireAuth>
+        }/>
 
-      {/* Student */}
-      <Route path="/student" element={
-        <RequireAuth role="student"><StudentDashboard /></RequireAuth>
-      }/>
-      <Route path="/session/:sessionId" element={
-        <RequireAuth role="student"><SessionPage /></RequireAuth>
-      }/>
+        {/* Student */}
+        <Route path="/student" element={
+          <RequireAuth role="student"><StudentDashboard /></RequireAuth>
+        }/>
+        <Route path="/session/:sessionId" element={
+          <RequireAuth role="student"><SessionPage /></RequireAuth>
+        }/>
 
-      {/* Lecturer */}
-      <Route path="/lecturer" element={
-        <RequireAuth role="lecturer"><LecturerDashboard /></RequireAuth>
-      }/>
-      <Route path="/lecturer/upload" element={
-        <RequireAuth role="lecturer"><UploadWorkbook /></RequireAuth>
-      }/>
-      <Route path="/lecturer/workbook/:workbookId/edit" element={
-        <RequireAuth role="lecturer"><EditWorkbook /></RequireAuth>
-      }/>
-      <Route path="/lecturer/payments" element={
-        <RequireAuth role="lecturer"><PaymentConfirm /></RequireAuth>
-      }/>
-      <Route path="/lecturer/watch/:sessionId" element={
-        <RequireAuth role="lecturer"><WatchSession /></RequireAuth>
-      }/>
+        {/* Lecturer */}
+        <Route path="/lecturer" element={
+          <RequireAuth role="lecturer"><LecturerDashboard /></RequireAuth>
+        }/>
+        <Route path="/lecturer/upload" element={
+          <RequireAuth role="lecturer"><UploadWorkbook /></RequireAuth>
+        }/>
+        <Route path="/lecturer/workbook/:workbookId/edit" element={
+          <RequireAuth role="lecturer"><EditWorkbook /></RequireAuth>
+        }/>
+        <Route path="/lecturer/payments" element={
+          <RequireAuth role="lecturer"><PaymentConfirm /></RequireAuth>
+        }/>
+        <Route path="/lecturer/watch/:sessionId" element={
+          <RequireAuth role="lecturer"><WatchSession /></RequireAuth>
+        }/>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }

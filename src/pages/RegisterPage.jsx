@@ -22,7 +22,7 @@ export default function RegisterPage() {
     setError(''); setLoading(true)
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password)
-      await setDoc(doc(db, 'users', cred.user.uid), {
+      await setDoc(doc(db, 'WBusers', cred.user.uid), {
         uid: cred.user.uid,
         name, email, role,
         createdAt: new Date().toISOString()

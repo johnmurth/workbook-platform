@@ -158,7 +158,7 @@ exports.initiateMpesaPayment = onCall(
 
       // Store a pending transaction record so the callback can find it later
       const checkoutRequestId = stkData.CheckoutRequestID;
-      await db.collection("mpesaTransactions").doc(checkoutRequestId).set({
+      await db.collection("WBmpesaTransactions").doc(checkoutRequestId).set({
         checkoutRequestId,
         merchantRequestId: stkData.MerchantRequestID,
         uid,
@@ -169,9 +169,12 @@ exports.initiateMpesaPayment = onCall(
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      const purchaseId = `${uid}_${workbookId}`;
+
       return {
         success: true,
         checkoutRequestId,
+        purchaseId: purchaseId,  // ← ADD THIS
         message: "STK Push sent. Check your phone to complete payment.",
       };
     } catch (err) {
@@ -201,7 +204,7 @@ exports.mpesaCallback = onRequest(async (req, res) => {
     const resultCode = callback.ResultCode;
     const resultDesc = callback.ResultDesc;
 
-    const txnRef = db.collection("mpesaTransactions").doc(checkoutRequestId);
+    const txnRef = db.collection("WBmpesaTransactions").doc(checkoutRequestId);
     const txnSnap = await txnRef.get();
 
     if (!txnSnap.exists) {
@@ -242,7 +245,7 @@ exports.mpesaCallback = onRequest(async (req, res) => {
 
       const workbook = { id: workbookSnap.id, ...workbookSnap.data() };
       const purchaseId = `${txn.uid}_${txn.workbookId}`;
-      const purchaseRef = db.collection("purchases").doc(purchaseId);
+      const purchaseRef = db.collection("WBpurchases").doc(purchaseId);
       const existingPurchase = await purchaseRef.get();
 
       if (existingPurchase.exists) {
@@ -253,23 +256,26 @@ exports.mpesaCallback = onRequest(async (req, res) => {
       }
 
       // Fetch student profile for name
-      const userSnap = await db.collection("users").doc(txn.uid).get();
+      const userSnap = await db.collection("WBusers").doc(txn.uid).get();
       const studentName = userSnap.exists ? userSnap.data().name : "Student";
 
-      const sessionRef = await db.collection("sessions").add({
+      const sessionRef = await db.collection("WBsessions").add({
         workbookId: workbook.id,
         workbookTitle: workbook.title,
         workbookUrl: workbook.fileUrl,
         studentUid: txn.uid,
         studentName,
-        lecturerUid: workbook.lecturerUid,
-        lecturerName: workbook.lecturerName,
+        lecturerUid: workbook.lecturerUid,  // ← Make sure this is included
+        lecturerName: workbook.lecturerName,  // ← Make sure this is included
         downloadLimit: workbook.downloadLimit || 3,
         downloadCount: 0,
         active: true,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         lastActive: admin.firestore.FieldValue.serverTimestamp(),
         answers: {},
+        moduleProgress: {},
+        currentModule: 1,
+        totalModules: workbook.totalModules || 1  // ← Make sure this is included
       });
 
       await purchaseRef.set({

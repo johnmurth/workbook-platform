@@ -1,7 +1,7 @@
 // src/pages/LecturerDashboard.jsx
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, orderBy, getDocs, doc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
 import Navbar from '../components/shared/Navbar'
@@ -11,8 +11,19 @@ import { getFileTypeLabel } from '../lib/fileUtils'
 export default function LecturerDashboard() {
   const { user, profile } = useAuth()
   const [workbooks, setWorkbooks] = useState([])
-  const [sessions,  setSessions]  = useState([])
-  const [loading,   setLoading]   = useState(true)
+  const [sessions, setSessions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [moduleStats, setModuleStats] = useState({})
+  const [now, setNow] = useState(Date.now()) // ← For forcing re-renders
+
+  // ── Force re-render every 2 seconds to check active status ──
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now())
+    }, 2000) // Check every 2 seconds
+    
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     if (!user) return
@@ -21,8 +32,14 @@ export default function LecturerDashboard() {
       where('lecturerUid', '==', user.uid),
       orderBy('createdAt', 'desc')
     )
-    const unsub = onSnapshot(q, snap => {
-      setWorkbooks(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const unsub = onSnapshot(q, async snap => {
+      const wbList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setWorkbooks(wbList)
+      
+      for (const wb of wbList) {
+        await fetchModuleStats(wb.id)
+      }
+      
       setLoading(false)
     })
     return unsub
@@ -30,18 +47,83 @@ export default function LecturerDashboard() {
 
   useEffect(() => {
     if (!user) return
+    
     const q = query(
-      collection(db, 'sessions'),
+      collection(db, 'WBsessions'),
       where('lecturerUid', '==', user.uid),
       orderBy('createdAt', 'desc')
     )
+    
     const unsub = onSnapshot(q, snap => {
-      setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const sessionsList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setSessions(sessionsList)
     })
+    
     return unsub
   }, [user])
 
-  const activeSessions = sessions.filter(s => s.active)
+  const fetchModuleStats = async (workbookId) => {
+    try {
+      const sessionsQuery = query(
+        collection(db, 'WBsessions'),
+        where('workbookId', '==', workbookId)
+      )
+      const sessionsSnap = await getDocs(sessionsQuery)
+      const sessionsList = sessionsSnap.docs.map(d => d.data())
+      
+      const stats = {}
+      sessionsList.forEach(session => {
+        if (session.moduleProgress) {
+          Object.entries(session.moduleProgress).forEach(([moduleNum, progress]) => {
+            if (!stats[moduleNum]) stats[moduleNum] = { total: 0, completed: 0 }
+            stats[moduleNum].total++
+            if (progress === 100) stats[moduleNum].completed++
+          })
+        }
+      })
+      
+      setModuleStats(prev => ({ ...prev, [workbookId]: stats }))
+    } catch (err) {
+      console.error('Error fetching module stats:', err)
+    }
+  }
+
+  // ── FIX: Check if session is active based on lastActive ──
+  const isSessionActive = (session) => {
+    if (!session.lastActive) return false
+    const lastActiveTime = session.lastActive?.toDate?.() || new Date(session.lastActive)
+    const diffSeconds = (new Date() - lastActiveTime) / 1000
+    return diffSeconds < 30
+  }
+
+  // ── FIX: Get last active time string ──
+  const getLastActiveString = (session) => {
+    if (!session.lastActive) return 'Never'
+    const lastActiveTime = session.lastActive?.toDate?.() || new Date(session.lastActive)
+    const diffSeconds = Math.floor((new Date() - lastActiveTime) / 1000)
+    if (diffSeconds < 60) return `${diffSeconds}s ago`
+    if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`
+    return lastActiveTime.toLocaleTimeString()
+  }
+
+  // ── Recalculate active sessions on every render (or when `now` changes) ──
+  const activeSessions = sessions.filter(s => isSessionActive(s))
+
+  const getModuleCount = (workbook) => {
+    return workbook.totalModules || 1
+  }
+
+  const getModuleStatsDisplay = (workbookId) => {
+    const stats = moduleStats[workbookId] || {}
+    const entries = Object.entries(stats)
+    if (entries.length === 0) return 'No submissions yet'
+    
+    return entries.map(([moduleNum, data]) => (
+      <span key={moduleNum} className="module-stat-tag">
+        M{moduleNum}: {data.completed}/{data.total}
+      </span>
+    ))
+  }
 
   return (
     <div>
@@ -69,13 +151,18 @@ export default function LecturerDashboard() {
             <div className="stat-label">Total Sessions</div>
           </div>
           <div className="stat-card card">
-            <div className="stat-num" style={{color:'var(--accent)'}}>{activeSessions.length}</div>
+            <div className="stat-num" style={{color: activeSessions.length > 0 ? '#22c55e' : 'var(--ink-muted)'}}>
+              {activeSessions.length}
+            </div>
             <div className="stat-label">Active Now</div>
+            <div className="stat-sub" style={{fontSize: '10px', color: '#999'}}>
+              {activeSessions.length > 0 ? '🟢 Live' : 'No active sessions'}
+            </div>
           </div>
         </div>
 
         {/* Active Sessions */}
-        {activeSessions.length > 0 && (
+        {activeSessions.length > 0 ? (
           <section className="dash-section">
             <h2 className="section-title">
               <span className="live-dot" /> Live Sessions
@@ -86,12 +173,28 @@ export default function LecturerDashboard() {
                   <div className="session-info">
                     <div className="session-student">{s.studentName || 'Student'}</div>
                     <div className="session-wb">{s.workbookTitle}</div>
+                    <div className="session-module">
+                      Module {s.currentModule || 1} of {s.totalModules || 1}
+                    </div>
+                    <div className="session-last-active" style={{fontSize: '11px', color: '#22c55e'}}>
+                      🟢 {getLastActiveString(s)}
+                    </div>
                   </div>
                   <Link to={`/lecturer/watch/${s.id}`} className="btn btn-primary btn-sm">
                     👁 Watch Live
                   </Link>
                 </div>
               ))}
+            </div>
+          </section>
+        ) : (
+          <section className="dash-section">
+            <div className="empty-state card" style={{padding: '32px', textAlign: 'center'}}>
+              <div className="empty-icon" style={{fontSize: '2.5rem'}}>🟤</div>
+              <h3 style={{marginBottom: '4px'}}>No Active Sessions</h3>
+              <p style={{color: 'var(--ink-muted)'}}>
+                Students will appear here when they are actively working on a workbook.
+              </p>
             </div>
           </section>
         )}
@@ -111,25 +214,46 @@ export default function LecturerDashboard() {
             </div>
           )}
           <div className="workbooks-grid">
-            {workbooks.map(wb => (
-              <div key={wb.id} className="workbook-card card">
-                <div className="wb-type-badge">{getFileTypeLabel(wb.fileType)}</div>
-                <h3 className="wb-title">{wb.title}</h3>
-                <p className="wb-desc">{wb.description}</p>
-                <div className="wb-meta">
-                  <span className="wb-price">KES {wb.price?.toLocaleString()}</span>
-                  <span className="wb-limit">⬇️ {wb.downloadLimit} downloads max</span>
+            {workbooks.map(wb => {
+              const moduleCount = getModuleCount(wb)
+              const moduleStatsDisplay = getModuleStatsDisplay(wb.id)
+              
+              return (
+                <div key={wb.id} className="workbook-card card">
+                  <div className="wb-type-badge">{getFileTypeLabel(wb.fileType)}</div>
+                  <h3 className="wb-title">{wb.title}</h3>
+                  <p className="wb-desc">{wb.description}</p>
+                  
+                  <div className="wb-module-info">
+                    <span className="module-count-badge">
+                      📚 {moduleCount} Module{moduleCount > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  
+                  {Object.keys(moduleStats[wb.id] || {}).length > 0 && (
+                    <div className="wb-module-stats">
+                      <div className="stats-label">Student Progress:</div>
+                      <div className="module-stats-tags">
+                        {getModuleStatsDisplay(wb.id)}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="wb-meta">
+                    <span className="wb-price">KES {wb.price?.toLocaleString()}</span>
+                    <span className="wb-limit">⬇️ {wb.downloadLimit} downloads max</span>
+                  </div>
+                  <div className="wb-actions">
+                    <Link to={`/lecturer/workbook/${wb.id}/edit`} className="btn btn-secondary btn-sm">
+                      ✏️ Edit Fields
+                    </Link>
+                    <span className="wb-sessions">
+                      {sessions.filter(s => s.workbookId === wb.id).length} sessions
+                    </span>
+                  </div>
                 </div>
-                <div className="wb-actions">
-                  <Link to={`/lecturer/workbook/${wb.id}/edit`} className="btn btn-secondary btn-sm">
-                    ✏️ Edit Fields
-                  </Link>
-                  <span className="wb-sessions">
-                    {sessions.filter(s => s.workbookId === wb.id).length} sessions
-                  </span>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
 
@@ -143,29 +267,47 @@ export default function LecturerDashboard() {
                   <tr>
                     <th>Student</th>
                     <th>Workbook</th>
+                    <th>Status</th>
+                    <th>Modules</th>
                     <th>Started</th>
                     <th>Downloads</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sessions.map(s => (
-                    <tr key={s.id}>
-                      <td>{s.studentName || '—'}</td>
-                      <td>{s.workbookTitle || '—'}</td>
-                      <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</td>
-                      <td>
-                        <span className={`badge ${s.downloadCount >= s.downloadLimit ? 'badge-red' : 'badge-gray'}`}>
-                          {s.downloadCount || 0} / {s.downloadLimit || 3}
-                        </span>
-                      </td>
-                      <td>
-                        <Link to={`/lecturer/watch/${s.id}`} className="btn btn-ghost btn-sm">
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                  {sessions.map(s => {
+                    const completed = s.moduleProgress ? Object.values(s.moduleProgress).filter(p => p === 100).length : 0
+                    const total = s.totalModules || 1
+                    const sessionActive = isSessionActive(s)
+                    
+                    return (
+                      <tr key={s.id}>
+                        <td>{s.studentName || '—'}</td>
+                        <td>{s.workbookTitle || '—'}</td>
+                        <td>
+                          <span className={`badge ${sessionActive ? 'badge-green' : 'badge-gray'}`}>
+                            {sessionActive ? `🟢 ${getLastActiveString(s)}` : `⚫ ${getLastActiveString(s)}`}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="module-progress-cell">
+                            {completed}/{total} modules
+                          </span>
+                        </td>
+                        <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</td>
+                        <td>
+                          <span className={`badge ${s.downloadCount >= s.downloadLimit ? 'badge-red' : 'badge-gray'}`}>
+                            {s.downloadCount || 0} / {s.downloadLimit || 3}
+                          </span>
+                        </td>
+                        <td>
+                          <Link to={`/lecturer/watch/${s.id}`} className="btn btn-ghost btn-sm">
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

@@ -1,0 +1,117 @@
+// src/lib/moduleUtils.js
+
+/**
+ * Detect section headers in document HTML
+ * Matches patterns like: "SECTION 1:", "SECTION 2:", etc.
+ */
+export const detectSections = (html) => {
+  const sectionRegex = /SECTION\s+(\d+):\s*([^<]*?)(?=<|$)/gi
+  const sections = []
+  let match
+
+  while ((match = sectionRegex.exec(html)) !== null) {
+    sections.push({
+      number: parseInt(match[1]),
+      title: match[2].trim(),
+      index: match.index,
+      length: match[0].length
+    })
+  }
+
+  return sections
+}
+
+/**
+ * Split HTML content into modules based on section headers
+ */
+export const splitIntoModules = (html, sections) => {
+  if (sections.length === 0) {
+    // No sections found - treat entire document as one module
+    return [{
+      number: 1,
+      title: 'Module 1',
+      content: html,
+      fieldIds: extractFieldIds(html)
+    }]
+  }
+
+  const modules = []
+  
+  for (let i = 0; i < sections.length; i++) {
+    const current = sections[i]
+    const next = sections[i + 1]
+    
+    // Extract content from current section to before next section
+    const startIdx = current.index + current.length
+    const endIdx = next ? next.index : html.length
+    
+    let content = html.substring(startIdx, endIdx).trim()
+    
+    // Add section header back as module title
+    const moduleTitle = `Module ${current.number}: ${current.title}`
+    
+    modules.push({
+      number: current.number,
+      title: moduleTitle,
+      content: content,
+      fieldIds: extractFieldIds(content)
+    })
+  }
+
+  return modules
+}
+
+/**
+ * Extract all fillable field IDs from HTML content
+ */
+export const extractFieldIds = (html) => {
+  const fieldIds = []
+  const regex = /data-field-id="([^"]+)"/g
+  let match
+  
+  while ((match = regex.exec(html)) !== null) {
+    fieldIds.push(match[1])
+  }
+  
+  return fieldIds
+}
+
+/**
+ * Calculate progress for a module based on answers
+ */
+export const calculateModuleProgress = (moduleFields, answers) => {
+  if (!moduleFields || moduleFields.length === 0) return 0
+  
+  const totalFields = moduleFields.length
+  let answeredFields = 0
+  
+  moduleFields.forEach(fieldId => {
+    if (answers && answers[fieldId] !== undefined && answers[fieldId] !== null && answers[fieldId] !== '') {
+      answeredFields++
+    }
+  })
+  
+  return Math.round((answeredFields / totalFields) * 100)
+}
+
+/**
+ * Group field IDs by module
+ */
+export const groupFieldsByModule = (modules) => {
+  const fieldMap = {}
+  modules.forEach(module => {
+    module.fieldIds.forEach(fieldId => {
+      fieldMap[fieldId] = module.number
+    })
+  })
+  return fieldMap
+}
+
+/**
+ * Rename section headers to module headers in HTML
+ */
+export const renameSectionsToModules = (html) => {
+  return html.replace(/SECTION\s+(\d+):/gi, (match, num) => {
+    return `Module ${num}:`
+  })
+}

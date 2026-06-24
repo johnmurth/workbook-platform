@@ -15,7 +15,7 @@ export function AuthProvider({ children }) {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser)
-        const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
+        const snap = await getDoc(doc(db, 'WBusers', firebaseUser.uid))
         if (snap.exists()) setProfile(snap.data())
       } else {
         setUser(null)

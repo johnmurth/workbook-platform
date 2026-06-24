@@ -1,10 +1,11 @@
 // src/pages/UploadWorkbook.jsx
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp, doc, writeBatch } from 'firebase/firestore'
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
+import { processDocumentIntoModules } from '../lib/documentProcessor'
 import Navbar from '../components/shared/Navbar'
 import './UploadWorkbook.css'
 
@@ -20,6 +21,8 @@ export default function UploadWorkbook() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [processingDoc, setProcessingDoc] = useState(false)
+  const [moduleCount, setModuleCount] = useState(0)
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0]
@@ -43,6 +46,7 @@ export default function UploadWorkbook() {
     
     setFile(selected)
     setError('')
+    setModuleCount(0)
   }
 
   const handleSubmit = async (e) => {
@@ -63,9 +67,19 @@ export default function UploadWorkbook() {
     setUploading(true)
     setError('')
     setUploadProgress(0)
+    setProcessingDoc(true)
 
     try {
-      // 1. Upload file to Firebase Storage
+      // 1. Read file and process for modules
+      const arrayBuffer = await file.arrayBuffer()
+      console.log('📄 Processing document for modules...')
+      
+      const { modules, totalModules, allFieldIds } = await processDocumentIntoModules(arrayBuffer)
+      console.log(`📚 Found ${totalModules} modules with ${allFieldIds.length} total fields`)
+      
+      setModuleCount(totalModules)
+      
+      // 2. Upload file to Firebase Storage
       const fileExtension = file.name.split('.').pop()
       const fileName = `${Date.now()}_${user.uid}.${fileExtension}`
       const storageRef = ref(storage, `workbooks/${user.uid}/${fileName}`)
@@ -87,7 +101,7 @@ export default function UploadWorkbook() {
         )
       })
 
-      // 2. Save workbook metadata to Firestore
+      // 3. Create workbook document with module metadata
       const workbookData = {
         title: title.trim(),
         description: description.trim(),
@@ -101,10 +115,41 @@ export default function UploadWorkbook() {
         lecturerName: profile?.name || 'Unknown Lecturer',
         createdAt: serverTimestamp(),
         totalPurchases: 0,
-        active: true
+        active: true,
+        // NEW: Module data
+        totalModules: totalModules,
+        moduleCount: totalModules,
+        moduleTitles: modules.map(m => m.title),
+        moduleFieldCounts: modules.map(m => m.totalFields),
+        allFieldIds: allFieldIds
       }
 
-      await addDoc(collection(db, 'workbooks'), workbookData)
+      const workbookRef = await addDoc(collection(db, 'workbooks'), workbookData)
+      console.log('✅ Workbook created:', workbookRef.id)
+
+      // 4. Save modules as sub-collection or separate collection
+      const batch = writeBatch(db)
+      
+      // Option A: Store modules in a sub-collection (recommended)
+      modules.forEach((module, index) => {
+        const moduleRef = doc(collection(db, 'workbooks', workbookRef.id, 'WBmodules'))
+        batch.set(moduleRef, {
+          workbookId: workbookRef.id,
+          moduleNumber: module.number,
+          moduleIndex: index,
+          title: module.title,
+          content: module.content,
+          fieldIds: module.fieldIds,
+          totalFields: module.totalFields,
+          createdAt: serverTimestamp()
+        })
+      })
+      
+      // Option B: Or store in top-level WBmodules collection
+      // (Choose one - I'll implement Option A as it's cleaner)
+      
+      await batch.commit()
+      console.log('✅ Modules saved:', modules.length)
       
       // Redirect to lecturer dashboard
       navigate('/lecturer')
@@ -114,6 +159,7 @@ export default function UploadWorkbook() {
     } finally {
       setUploading(false)
       setUploadProgress(0)
+      setProcessingDoc(false)
     }
   }
 
@@ -206,6 +252,18 @@ export default function UploadWorkbook() {
                 <small>Maximum file size: 50MB</small>
               </div>
 
+              {processingDoc && (
+                <div className="processing-info">
+                  <span className="spinner" /> Processing document for modules...
+                </div>
+              )}
+
+              {moduleCount > 0 && !processingDoc && (
+                <div className="module-info success-msg">
+                  ✅ Found {moduleCount} module{moduleCount > 1 ? 's' : ''} in this document
+                </div>
+              )}
+
               {uploading && (
                 <div className="progress-container">
                   <div className="progress-bar">
@@ -222,15 +280,15 @@ export default function UploadWorkbook() {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  disabled={uploading}
+                  disabled={uploading || processingDoc}
                 >
-                  {uploading ? 'Uploading...' : '📤 Upload Workbook'}
+                  {uploading ? 'Uploading...' : processingDoc ? 'Processing...' : '📤 Upload Workbook'}
                 </button>
                 <button 
                   type="button" 
                   className="btn btn-secondary"
                   onClick={() => navigate('/lecturer')}
-                  disabled={uploading}
+                  disabled={uploading || processingDoc}
                 >
                   Cancel
                 </button>
@@ -241,7 +299,8 @@ export default function UploadWorkbook() {
           <div className="upload-tips">
             <h4>📌 Tips for best results:</h4>
             <ul>
-              <li>Use clear, descriptive titles for easy searching</li>
+              <li>Use "SECTION X:" headers to create multiple modules automatically</li>
+              <li>Clear, descriptive titles help students find your workbooks</li>
               <li>PDF files work best for consistent formatting</li>
               <li>Set reasonable prices based on content value</li>
               <li>Download limits prevent sharing of completed work</li>

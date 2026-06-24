@@ -1,10 +1,11 @@
 // src/pages/WatchSession.jsx
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, onSnapshot } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot, collection, query, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
-import { processDocumentForFillable, loadSavedAnswers } from '../lib/documentProcessor'
+import { loadSavedAnswers } from '../lib/documentProcessor'
+import ModuleNavigation from '../components/ModuleNavigation'
 import Navbar from '../components/shared/Navbar'
 import './WatchSession.css'
 
@@ -14,23 +15,25 @@ export default function WatchSession() {
   const { user } = useAuth()
 
   const [session, setSession] = useState(null)
+  const [modules, setModules] = useState([])
+  const [currentModule, setCurrentModule] = useState(1)
+  const [currentModuleContent, setCurrentModuleContent] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [documentHtml, setDocumentHtml] = useState(null)
-  const [processing, setProcessing] = useState(false)
   const [answers, setAnswers] = useState({})
+  const [moduleProgress, setModuleProgress] = useState({})
   const [studentOnline, setStudentOnline] = useState(false)
   const [lastActive, setLastActive] = useState(null)
+  const [processing, setProcessing] = useState(false)
 
   const documentContainerRef = useRef(null)
-  // Track whether the document has been rendered so we only process once
   const documentReadyRef = useRef(false)
 
-  // Load session + workbook + document once
+  // Load session + modules
   useEffect(() => {
     const loadSession = async () => {
       try {
-        const sessionRef = doc(db, 'sessions', sessionId)
+        const sessionRef = doc(db, 'WBsessions', sessionId)
         const sessionSnap = await getDoc(sessionRef)
 
         if (!sessionSnap.exists()) { setError('Session not found'); setLoading(false); return }
@@ -45,13 +48,11 @@ export default function WatchSession() {
 
         setSession(sessionData)
         setAnswers(sessionData.answers || {})
+        setModuleProgress(sessionData.moduleProgress || {})
+        setCurrentModule(sessionData.currentModule || 1)
 
-        const workbookRef = doc(db, 'workbooks', sessionData.workbookId)
-        const workbookSnap = await getDoc(workbookRef)
-
-        if (workbookSnap.exists()) {
-          await loadDocument(workbookSnap.data(), sessionData.answers || {})
-        }
+        // Fetch modules
+        await fetchModules(sessionData.workbookId, sessionData)
 
       } catch (err) {
         console.error('Error loading session:', err)
@@ -64,99 +65,158 @@ export default function WatchSession() {
     loadSession()
   }, [sessionId, user])
 
-  const loadDocument = async (workbookData, initialAnswers) => {
-    setProcessing(true)
+  // NEW: Fetch modules
+  const fetchModules = async (workbookId, sessionData) => {
     try {
-      const fileUrl = workbookData.fileUrl
-      const fileType = workbookData.fileType || ''
-
-      if (fileType.includes('word') || fileType.includes('document')) {
-        const response = await fetch(fileUrl)
-        const arrayBuffer = await response.arrayBuffer()
-
-        // No-op field change handler — lecturer view is read-only
-        const { html: processedHtml } = await processDocumentForFillable(
-          arrayBuffer,
-          () => {}
-        )
-
-        setDocumentHtml(processedHtml)
-        documentReadyRef.current = true
-
-        // Load initial answers after a tick so the DOM is ready
-        setTimeout(() => {
-          if (documentContainerRef.current) {
-            loadSavedAnswers(documentContainerRef.current, initialAnswers)
-            lockDocument(documentContainerRef.current)
-          }
-        }, 200)
-
-      } else if (fileType.includes('pdf')) {
-        setDocumentHtml(`
-          <div class="pdf-viewer">
-            <embed src="${fileUrl}#toolbar=0&navpanes=0" type="application/pdf" width="100%" height="700px" />
-          </div>
-        `)
+      const modulesQuery = query(
+        collection(db, 'workbooks', workbookId, 'WBmodules'),
+        orderBy('moduleNumber')
+      )
+      const modulesSnap = await getDocs(modulesQuery)
+      
+      let modulesList = []
+      if (!modulesSnap.empty) {
+        modulesList = modulesSnap.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
       } else {
-        setDocumentHtml(`<p>Unsupported file type. <a href="${fileUrl}" target="_blank">Download</a></p>`)
+        // Fallback
+        const fallbackQuery = query(
+          collection(db, 'WBmodules'),
+          where('workbookId', '==', workbookId),
+          orderBy('moduleNumber')
+        )
+        const fallbackSnap = await getDocs(fallbackQuery)
+        modulesList = fallbackSnap.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
       }
+      
+      if (modulesList.length === 0) {
+        setError('No modules found')
+        setLoading(false)
+        return
+      }
+      
+      setModules(modulesList)
+      
+      const targetModule = sessionData.currentModule || 1
+      const moduleToLoad = modulesList.find(m => m.moduleNumber === targetModule) || modulesList[0]
+      setCurrentModule(moduleToLoad.moduleNumber)
+      setCurrentModuleContent(moduleToLoad.content)
+      
+      documentReadyRef.current = true
+      
+      // Load answers after DOM ready
+      setTimeout(() => {
+        if (documentContainerRef.current) {
+          const moduleKey = `module_${moduleToLoad.moduleNumber}`
+          const moduleAns = sessionData.answers?.[moduleKey] || {}
+          loadSavedAnswers(documentContainerRef.current, moduleAns)
+          lockDocument(documentContainerRef.current)
+        }
+      }, 200)
+      
     } catch (err) {
-      console.error('Error loading document:', err)
-      setDocumentHtml('<p>Could not load document.</p>')
-    } finally {
-      setProcessing(false)
+      console.error('Error fetching modules:', err)
+      setError('Could not load modules')
     }
   }
 
-  // Make all fillable elements read-only for the lecturer
+  // NEW: Change module (lecturer view)
+  const handleModuleChange = (moduleNumber) => {
+    if (moduleNumber === currentModule) return
+    
+    const newModule = modules.find(m => m.moduleNumber === moduleNumber)
+    if (!newModule) return
+    
+    setCurrentModule(moduleNumber)
+    setCurrentModuleContent(newModule.content)
+    
+    // Load answers for this module
+    setTimeout(() => {
+      if (documentContainerRef.current) {
+        const moduleKey = `module_${moduleNumber}`
+        const moduleAns = answers[moduleKey] || {}
+        loadSavedAnswers(documentContainerRef.current, moduleAns)
+        lockDocument(documentContainerRef.current)
+        
+        // FIX: Scroll to top when module changes
+        documentContainerRef.current.scrollTop = 0
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    }, 100)
+  }
+
   const lockDocument = (container) => {
     if (!container) return
-    // Disable contenteditable
     container.querySelectorAll('[contenteditable]').forEach(el => {
       el.setAttribute('contenteditable', 'false')
       el.style.pointerEvents = 'none'
       el.style.cursor = 'default'
     })
-    // Disable checkboxes and radios
     container.querySelectorAll('.fillable-checkbox, .fillable-radio').forEach(el => {
       el.style.pointerEvents = 'none'
       el.style.cursor = 'default'
     })
   }
 
-  // Real-time listener — update answers as student types
+  // Real-time listener
   useEffect(() => {
     if (!sessionId) return
 
-    const sessionRef = doc(db, 'sessions', sessionId)
+    const sessionRef = doc(db, 'WBsessions', sessionId)
     const unsubscribe = onSnapshot(sessionRef, (snap) => {
       if (!snap.exists()) return
 
       const data = snap.data()
       const updatedAnswers = data.answers || {}
       setAnswers(updatedAnswers)
+      setModuleProgress(data.moduleProgress || {})
 
-      // Check student online status
       const lastActiveTime = data.lastActive?.toDate?.() || new Date(0)
       setStudentOnline((new Date() - lastActiveTime) < 30000)
       setLastActive(lastActiveTime)
 
-      // Push answers into the rendered document live
+      // Update current module if changed
+      if (data.currentModule && data.currentModule !== currentModule) {
+        const newModule = modules.find(m => m.moduleNumber === data.currentModule)
+        if (newModule) {
+          setCurrentModule(data.currentModule)
+          setCurrentModuleContent(newModule.content)
+          setTimeout(() => {
+            if (documentContainerRef.current) {
+              const moduleKey = `module_${data.currentModule}`
+              const moduleAns = updatedAnswers[moduleKey] || {}
+              loadSavedAnswers(documentContainerRef.current, moduleAns)
+              lockDocument(documentContainerRef.current)
+            }
+          }, 100)
+        }
+      }
+
+      // Push answers into rendered document
       if (documentContainerRef.current && documentReadyRef.current) {
-        loadSavedAnswers(documentContainerRef.current, updatedAnswers)
+        const moduleKey = `module_${currentModule}`
+        const moduleAns = updatedAnswers[moduleKey] || {}
+        loadSavedAnswers(documentContainerRef.current, moduleAns)
         lockDocument(documentContainerRef.current)
       }
     })
 
     return () => unsubscribe()
-  }, [sessionId])
+  }, [sessionId, currentModule, modules])
 
-  // Also apply answers after document HTML is set
+  // Apply answers after content loads
   useEffect(() => {
-    if (!documentContainerRef.current || !documentHtml || processing) return
-    loadSavedAnswers(documentContainerRef.current, answers)
+    if (!documentContainerRef.current || !currentModuleContent || processing) return
+    const moduleKey = `module_${currentModule}`
+    const moduleAns = answers[moduleKey] || {}
+    loadSavedAnswers(documentContainerRef.current, moduleAns)
     lockDocument(documentContainerRef.current)
-  }, [documentHtml, processing])
+  }, [currentModuleContent, processing])
 
   const formatLastActive = () => {
     if (!lastActive) return 'Never'
@@ -189,12 +249,16 @@ export default function WatchSession() {
     )
   }
 
+  const totalModules = modules.length
+  const completedModules = Object.values(moduleProgress).filter(p => p === 100).length
+
+
   return (
     <div>
       <Navbar />
       <div className="watch-session-page">
 
-        {/* Live Header */}
+        {/* ── LIVE HEADER ── */}
         <div className="live-header">
           <div className="container">
             <div className="live-header-content">
@@ -203,44 +267,85 @@ export default function WatchSession() {
                   <span className="live-dot" />
                   LIVE
                 </div>
-                <h1>{session?.workbookTitle}</h1>
-                <p className="student-name">Student: {session?.studentName}</p>
+                <span className="workbook-title">{session?.workbookTitle}</span>
+                <span className="workbook-meta">
+                  <span className="separator">•</span>
+                  {session?.studentName}
+                  <span className="separator">•</span>
+                  M{currentModule}/{totalModules}
+                </span>
               </div>
-              <div className="session-meta">
+
+              <div className="session-controls">
                 <div className={`status-indicator ${studentOnline ? 'online' : 'offline'}`}>
-                  {studentOnline ? '● Active now' : '○ Away'}
+                  <span className={`status-dot ${studentOnline ? 'online' : 'offline'}`} />
+                  {studentOnline ? 'Active' : 'Away'}
                 </div>
-                <div className="last-active">Last activity: {formatLastActive()}</div>
-                <div className="answers-count">{Object.keys(answers).length} fields filled</div>
-              </div>
-              <div className="header-actions">
-                <button onClick={() => navigate('/lecturer')} className="btn btn-ghost">
-                  ← Back
-                </button>
+                <div className="session-stats">
+                  <span className="stat-item">
+                    <span className="stat-icon">📝</span>
+                    <span className="stat-value">
+                      {Object.keys(answers).reduce((total, key) => {
+                        if (key.startsWith('module_')) {
+                          return total + Object.keys(answers[key] || {}).length
+                        }
+                        return total
+                      }, 0)}
+                    </span>
+                  </span>
+                  <span className="stat-item">
+                    <span className="stat-icon">⏱</span>
+                    <span className="stat-value">{formatLastActive()}</span>
+                  </span>
+                </div>
+                <div className="header-actions">
+                  <button onClick={() => navigate('/lecturer')} className="btn btn-ghost">
+                    ✕
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Document Viewer — same as student but locked */}
+        {/* ── DOCUMENT VIEWER ── */}
         <div className="document-viewer-container">
           <div className="container">
             <div className="watch-notice">
-              👁️ <strong>Read-only view</strong> — this updates live as the student fills the document
+              👁️ <strong>Read-only view</strong> — this updates live as the student fills each module
             </div>
-            <div className="document-viewer card" ref={documentContainerRef}>
-              {processing ? (
-                <div className="loading-document"><span className="spinner" /> Loading document...</div>
-              ) : documentHtml ? (
-                <div className="html-viewer" dangerouslySetInnerHTML={{ __html: documentHtml }} />
-              ) : (
-                <div className="empty-document">No document loaded</div>
-              )}
+            
+            <div className="document-layout">
+              <div className="module-sidebar">
+                <ModuleNavigation
+                  modules={modules}
+                  currentModule={currentModule}
+                  onModuleChange={handleModuleChange}
+                  moduleProgress={moduleProgress}
+                />
+              </div>
+
+              <div className="document-content">
+                <div className="module-title-bar">
+                  <h2>{modules.find(m => m.moduleNumber === currentModule)?.title || `Module ${currentModule}`}</h2>
+                  <div className="module-progress-badge">
+                    {moduleProgress[currentModule] || 0}% complete
+                  </div>
+                </div>
+                
+                <div className="document-viewer card" ref={documentContainerRef}>
+                  {currentModuleContent ? (
+                    <div className="html-viewer" dangerouslySetInnerHTML={{ __html: currentModuleContent }} />
+                  ) : (
+                    <div className="empty-document">No content available</div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
+        {/* ── FOOTER ── */}
         <div className="live-footer">
           <div className="container">
             <div className="footer-content">
@@ -252,7 +357,6 @@ export default function WatchSession() {
             </div>
           </div>
         </div>
-
       </div>
     </div>
   )

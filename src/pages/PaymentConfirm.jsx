@@ -38,7 +38,7 @@ export default function PaymentConfirm() {
 
       // Fetch all purchases for lecturer's workbooks
       const purchasesQuery = query(
-        collection(db, 'purchases'),
+        collection(db, 'WBpurchases'),
         where('lecturerUid', '==', user.uid),
         orderBy('purchaseDate', 'desc')
       )

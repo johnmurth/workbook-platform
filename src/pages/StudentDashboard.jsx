@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { collection, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
+import { calculateModuleProgress } from '../lib/moduleUtils'
 import Navbar from '../components/shared/Navbar'
 import './StudentDashboard.css'
 
@@ -24,7 +25,7 @@ export default function StudentDashboard() {
     try {
       // Fetch all purchases for this student
       const purchasesQuery = query(
-        collection(db, 'purchases'),
+        collection(db, 'WBpurchases'),
         where('studentUid', '==', user.uid),
         orderBy('purchaseDate', 'desc')
       )
@@ -37,7 +38,7 @@ export default function StudentDashboard() {
 
       // Fetch all sessions for this student
       const sessionsQuery = query(
-        collection(db, 'sessions'),
+        collection(db, 'WBsessions'),
         where('studentUid', '==', user.uid),
         orderBy('lastActive', 'desc')
       )
@@ -59,6 +60,25 @@ export default function StudentDashboard() {
     const totalFields = Object.keys(session.answers).length
     // This is a placeholder - actual total fields would come from workbook structure
     return Math.min(totalFields * 10, 100)
+  }
+
+  // NEW: Get module progress for a session
+  const getModuleProgress = (session) => {
+    if (!session.moduleProgress) return {}
+    return session.moduleProgress
+  }
+
+  // NEW: Get total modules completed
+  const getModulesCompleted = (session) => {
+    if (!session.moduleProgress) return 0
+    const progress = session.moduleProgress
+    const completed = Object.values(progress).filter(p => p === 100).length
+    return completed
+  }
+
+  // NEW: Get total modules count
+  const getTotalModules = (session) => {
+    return session.totalModules || 1
   }
 
   if (loading) {
@@ -85,7 +105,7 @@ export default function StudentDashboard() {
             </div>
             <div className="stats-badge">
               <span className="stat-value">{purchases.length}</span>
-              <span className="stat-label">Workbooks Purchased</span>
+              <span className="stat-label" style={{ color: 'white' }}>Workbooks Purchased</span>
             </div>
           </div>
 
@@ -121,6 +141,9 @@ export default function StudentDashboard() {
                 <div className="purchased-grid">
                   {purchases.map((purchase) => {
                     const session = sessions.find(s => s.id === purchase.sessionId)
+                    const modulesCompleted = session ? getModulesCompleted(session) : 0
+                    const totalModules = session ? getTotalModules(session) : 1
+                    
                     return (
                       <div key={purchase.id} className="purchased-card card">
                         <div className="card-header">
@@ -133,20 +156,31 @@ export default function StudentDashboard() {
                         <h3 className="workbook-title">{purchase.workbookTitle}</h3>
                         <p className="lecturer-name">by {purchase.lecturerName}</p>
                         
-                        {session && (
-                          <div className="progress-section">
-                            <div className="progress-label">
-                              <span>Progress</span>
-                              <span>{getProgressPercentage(session)}%</span>
-                            </div>
-                            <div className="progress-bar">
-                              <div 
-                                className="progress-fill" 
-                                style={{ width: `${getProgressPercentage(session)}%` }}
-                              />
-                            </div>
+                        {/* NEW: Module progress display */}
+                        <div className="module-progress-section">
+                          <div className="module-progress-header">
+                            <span>Progress: {modulesCompleted}/{totalModules} Modules</span>
+                            <span>{Math.round((modulesCompleted/totalModules) * 100)}%</span>
                           </div>
-                        )}
+                          <div className="progress-bar">
+                            <div 
+                              className="progress-fill" 
+                              style={{ width: `${(modulesCompleted/totalModules) * 100}%` }}
+                            />
+                          </div>
+                          {session?.moduleProgress && (
+                            <div className="module-tags">
+                              {Object.entries(session.moduleProgress).map(([moduleNum, progress]) => (
+                                <span 
+                                  key={moduleNum}
+                                  className={`module-tag ${progress === 100 ? 'completed' : 'in-progress'}`}
+                                >
+                                  M{moduleNum}: {progress}%
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         
                         <div className="session-info">
                           <div className="download-info">
@@ -175,7 +209,7 @@ export default function StudentDashboard() {
             </div>
           )}
 
-          {/* Sessions Tab */}
+          {/* Sessions Tab - Updated to show module info */}
           {activeTab === 'sessions' && (
             <div className="sessions-tab">
               {sessions.length === 0 ? (
@@ -189,31 +223,41 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 <div className="sessions-list">
-                  {sessions.map((session) => (
-                    <div key={session.id} className="session-item card">
-                      <div className="session-status">
-                        <span className={`status-badge ${session.active ? 'active' : 'completed'}`}>
-                          {session.active ? '● Active' : '○ Completed'}
-                        </span>
-                      </div>
-                      
-                      <div className="session-content">
-                        <h4>{session.workbookTitle}</h4>
-                        <p className="session-meta">
-                          Started: {session.createdAt?.toDate?.().toLocaleDateString() || 'Recently'}
-                        </p>
-                        
-                        <div className="session-stats">
-                          <span>📝 {session.answers ? Object.keys(session.answers).length : 0} answers saved</span>
-                          <span>📥 {session.downloadCount || 0}/{session.downloadLimit || 3} downloads used</span>
+                  {sessions.map((session) => {
+                    const modulesCompleted = getModulesCompleted(session)
+                    const totalModules = getTotalModules(session)
+                    
+                    return (
+                      <div key={session.id} className="session-item card">
+                        <div className="session-status">
+                          <span className={`status-badge ${session.active ? 'active' : 'completed'}`}>
+                            {session.active ? '● Active' : '○ Completed'}
+                          </span>
                         </div>
+                        
+                        <div className="session-content">
+                          <h4>{session.workbookTitle}</h4>
+                          <p className="session-meta">
+                            Started: {session.createdAt?.toDate?.().toLocaleDateString() || 'Recently'}
+                          </p>
+                          
+                          {/* NEW: Module progress */}
+                          <div className="session-module-progress">
+                            <span>📚 Modules: {modulesCompleted}/{totalModules} completed</span>
+                          </div>
+                          
+                          <div className="session-stats">
+                            <span>📝 {session.answers ? Object.keys(session.answers).length : 0} answers saved</span>
+                            <span>📥 {session.downloadCount || 0}/{session.downloadLimit || 3} downloads used</span>
+                          </div>
+                        </div>
+                        
+                        <Link to={`/session/${session.id}`} className="btn btn-secondary">
+                          {session.active ? 'Continue →' : 'View →'}
+                        </Link>
                       </div>
-                      
-                      <Link to={`/session/${session.id}`} className="btn btn-secondary">
-                        {session.active ? 'Continue →' : 'View →'}
-                      </Link>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -225,8 +269,8 @@ export default function StudentDashboard() {
             <ul>
               <li>Your progress is saved automatically as you fill your workbook</li>
               <li>Lecturers can see your answers in real-time</li>
+              <li>Workbooks are divided into modules for easier learning</li>
               <li>You can download your completed workbook up to the download limit</li>
-              <li>Need help? Contact your lecturer through the session page</li>
             </ul>
           </div>
         </div>

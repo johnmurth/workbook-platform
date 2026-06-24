@@ -16,30 +16,36 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
-      <div className="container navbar-inner">
+      <div className="navbar-inner">
         <Link to="/" className="navbar-brand">
-          <span className="brand-icon">📖</span>
+          <span className="brand-icon"><i className="ti ti-book-2" aria-hidden="true"></i></span>
           <span className="brand-name">WorkBook</span>
         </Link>
 
         <div className="navbar-links">
           <Link to="/store" className="nav-link">Browse</Link>
 
-          {!user && <>
-            <Link to="/login"    className="nav-link">Log in</Link>
-            <Link to="/register" className="btn btn-primary btn-sm">Get Started</Link>
-          </>}
+          {!user && (
+            <>
+              <Link to="/login" className="nav-link">Sign in</Link>
+              <Link to="/register" className="btn btn-primary btn-sm">Get started</Link>
+            </>
+          )}
 
-          {user && profile?.role === 'student' && <>
-            <Link to="/student" className="nav-link">My Workbooks</Link>
-            <button onClick={handleLogout} className="btn btn-ghost btn-sm">Log out</button>
-          </>}
+          {user && profile?.role === 'student' && (
+            <>
+              <Link to="/student" className="nav-link">My Workbooks</Link>
+              <button onClick={handleLogout} className="nav-link">Log out</button>
+            </>
+          )}
 
-          {user && profile?.role === 'lecturer' && <>
-            <Link to="/lecturer"          className="nav-link">Dashboard</Link>
-            <Link to="/lecturer/payments" className="nav-link">Payments</Link>
-            <button onClick={handleLogout} className="btn btn-ghost btn-sm">Log out</button>
-          </>}
+          {user && profile?.role === 'lecturer' && (
+            <>
+              <Link to="/lecturer" className="nav-link">Dashboard</Link>
+              <Link to="/lecturer/payments" className="nav-link">Payments</Link>
+              <button onClick={handleLogout} className="nav-link">Log out</button>
+            </>
+          )}
         </div>
       </div>
     </nav>

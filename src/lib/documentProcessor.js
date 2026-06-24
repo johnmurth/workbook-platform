@@ -1,12 +1,13 @@
 // src/lib/documentProcessor.js
 
+import { detectSections, splitIntoModules, extractFieldIds, renameSectionsToModules } from './moduleUtils'
+
 // ============================================================
 // MAMMOTH OPTIONS
 // ============================================================
 export const mammothOptions = {
   ignoreEmptyParagraphs: false,
 }
-
 
 // ============================================================
 // INJECT SHAPE MARKERS INTO RAW XML BEFORE MAMMOTH CONVERTS
@@ -43,9 +44,8 @@ const injectShapeMarkers = async (arrayBuffer) => {
   return { modifiedBuffer, totalMarkers: markerId }
 }
 
-
 // ============================================================
-// MAIN PROCESSOR
+// PROCESS DOCUMENT (returns processed HTML with fillable fields)
 // ============================================================
 export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => {
   let fieldId = 0
@@ -68,15 +68,9 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
   })
   let html = result.value
 
-  // Check how many markers survived — log a sample so we can see exact format
+  // Check how many markers survived
   const survived = (html.match(/SHAPELINE\d+END/g) || [])
   console.log(`🎯 Shape markers in HTML: ${survived.length} of ${totalMarkers}`)
-  if (survived.length > 0) {
-    // Log the HTML around the first marker to see context
-    const firstMarker = survived[0]
-    const idx = html.indexOf(firstMarker)
-    console.log('📋 HTML around first marker:', html.substring(idx - 100, idx + 50))
-  }
 
   // STEP 3: Replace typed blanks FIRST (before DOM parsing)
   html = html.replace(/(_{3,}|-{3,}|\.{3,})/g, (match) => {
@@ -104,9 +98,7 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
   const container = document.createElement('div')
   container.innerHTML = html
 
-  // Replace shape markers — walk text nodes to find marker text,
-  // then replace the whole containing paragraph with a fillable input.
-  // We do this in the DOM so we can surgically replace the right element.
+  // Replace shape markers
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
   const markerNodes = []
   while (walker.nextNode()) {
@@ -136,15 +128,12 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
       const textOnly = parentPara.textContent.trim().replace(/SHAPELINEd+END/g, '').trim()
 
       if (hasImage) {
-        // Paragraph has an image — keep it, just remove the marker text node and append input after paragraph
         textNode.parentNode.removeChild(textNode)
         parentPara.insertAdjacentElement('afterend', input)
       } else if (!textOnly) {
-        // Paragraph is only the marker — replace contents with input
         parentPara.innerHTML = ''
         parentPara.appendChild(input)
       } else {
-        // Marker shares paragraph with real text — replace just the text node
         textNode.parentNode.replaceChild(input, textNode)
       }
     } else {
@@ -173,9 +162,41 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
     }
   })
 
-  return { html: container.innerHTML, fields }
+  // Step 5: Return full HTML and fields
+  return { 
+    html: container.innerHTML, 
+    fields,
+    // NEW: Detect sections and split into modules
+    sections: detectSections(container.innerHTML),
+    allFieldIds: fields.map(f => f.id)
+  }
 }
 
+// ============================================================
+// NEW: Process document and split into modules
+// ============================================================
+export const processDocumentIntoModules = async (arrayBuffer) => {
+  // First, process the document normally
+  const { html, fields, sections } = await processDocumentForFillable(arrayBuffer, () => {})
+  
+  // Rename section headers to module headers
+  const renamedHtml = renameSectionsToModules(html)
+  
+  // Split into modules
+  const modules = splitIntoModules(renamedHtml, sections)
+  
+  // Add field IDs to each module
+  modules.forEach(module => {
+    module.fieldIds = extractFieldIds(module.content)
+    module.totalFields = module.fieldIds.length
+  })
+  
+  return {
+    modules,
+    totalModules: modules.length,
+    allFieldIds: fields.map(f => f.id)
+  }
+}
 
 // ============================================================
 // ATTACH LISTENERS — call from SessionPage after React renders
@@ -268,7 +289,6 @@ export const attachListeners = (container, onFieldChange) => {
     input.addEventListener('input', () => onFieldChange(id, input.textContent))
   })
 }
-
 
 // ============================================================
 // LOAD SAVED ANSWERS

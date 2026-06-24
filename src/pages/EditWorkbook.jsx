@@ -26,6 +26,10 @@ export default function EditWorkbook() {
   const [price, setPrice] = useState('')
   const [downloadLimit, setDownloadLimit] = useState(3)
   const [active, setActive] = useState(true)
+  
+  // NEW: Module fields
+  const [moduleCount, setModuleCount] = useState(0)
+  const [moduleTitles, setModuleTitles] = useState([])
 
   useEffect(() => {
     const fetchWorkbook = async () => {
@@ -54,6 +58,10 @@ export default function EditWorkbook() {
         setPrice(data.price?.toString() || '')
         setDownloadLimit(data.downloadLimit || 3)
         setActive(data.active !== false)
+        
+        // NEW: Set module data
+        setModuleCount(data.totalModules || 0)
+        setModuleTitles(data.moduleTitles || [])
         
       } catch (err) {
         console.error('Error fetching workbook:', err)
@@ -241,6 +249,31 @@ export default function EditWorkbook() {
                   </div>
                 </div>
 
+                {/* NEW: Module Information Display */}
+                <div className="form-group">
+                  <label>Module Information</label>
+                  <div className="module-info-display">
+                    <p>📚 {workbook?.totalModules || 0} Modules</p>
+                    {workbook?.moduleTitles && workbook.moduleTitles.length > 0 && (
+                      <div className="module-titles-list">
+                        {workbook.moduleTitles.map((title, i) => (
+                          <span key={i} className="module-title-tag">
+                            Module {i+1}: {title}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {(!workbook?.moduleTitles || workbook.moduleTitles.length === 0) && (
+                      <p className="no-modules-text">
+                        {workbook?.totalModules > 1 
+                          ? 'Modules exist but titles not available' 
+                          : 'No modules detected. Upload a new version with "SECTION X:" headers to create modules.'}
+                      </p>
+                    )}
+                  </div>
+                  <small>Modules are created automatically when uploading documents with "SECTION X:" headers</small>
+                </div>
+
                 <div className="form-group">
                   <label className="checkbox-label">
                     <input 
@@ -285,6 +318,11 @@ export default function EditWorkbook() {
                   <span>Total Revenue:</span>
                   <strong>KES {stats.revenue.toLocaleString()}</strong>
                 </div>
+                {/* NEW: Module stats */}
+                <div className="stat-item">
+                  <span>Modules:</span>
+                  <strong>{workbook?.totalModules || 0}</strong>
+                </div>
               </div>
 
               <div className="info-card card">
@@ -316,6 +354,7 @@ export default function EditWorkbook() {
                   <li>Detailed descriptions increase purchases</li>
                   <li>Reasonable pricing attracts more students</li>
                   <li>Keep download limits reasonable (3-5 is typical)</li>
+                  <li>Use "SECTION X:" headers to create modules automatically</li>
                 </ul>
               </div>
             </div>

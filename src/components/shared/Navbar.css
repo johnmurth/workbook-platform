@@ -1,30 +1,119 @@
 /* src/components/shared/Navbar.css */
 .navbar {
-  height: var(--nav-h);
-  background: rgba(250, 249, 246, 0.92);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--paper-3);
-  position: sticky; top: 0; z-index: 100;
+  position: fixed; 
+  top: 0; 
+  left: 0; 
+  right: 0; 
+  z-index: 100;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
+
 .navbar-inner {
-  display: flex; align-items: center; justify-content: space-between;
-  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-height: var(--nav-h);
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 24px;
 }
+
 .navbar-brand {
-  display: flex; align-items: center; gap: 10px;
-  font-family: var(--font-display);
-  font-size: 1.35rem; font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--ink);
-  letter-spacing: -0.02em;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.brand-icon { font-size: 1.5rem; }
+
+.navbar-brand .brand-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 14px;
+}
+
+.navbar-brand .brand-name {
+  font-weight: 600;
+}
 
 .navbar-links {
-  display: flex; align-items: center; gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
+
 .nav-link {
-  padding: 6px 12px; border-radius: var(--radius-sm);
-  font-size: 0.9rem; color: var(--ink-soft);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
   transition: color 0.15s, background 0.15s;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  text-decoration: none;
 }
-.nav-link:hover { color: var(--ink); background: var(--paper-2); }
+
+.nav-link:hover { 
+  color: var(--ink); 
+  background: var(--paper-2); 
+}
+
+.navbar-links .btn-sm {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+}
+
+/* ── RESPONSIVE FIX ───────────────────────────────── */
+@media (max-width: 600px) {
+  /* Remove fixed padding from body - let navbar handle it */
+  body { 
+    padding-top: 0 !important; 
+  }
+  
+  /* Add padding to body via JavaScript or use margin on content */
+  /* We'll use a spacer div approach instead */
+  
+  .navbar-inner {
+    flex-direction: column;
+    justify-content: center;
+    padding: 8px 16px;
+    min-height: unset;
+    gap: 6px;
+  }
+
+  .navbar-links {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+  }
+  
+  .nav-link {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+  }
+  
+  .navbar-links .btn-sm {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+  }
+}
