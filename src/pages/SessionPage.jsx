@@ -340,6 +340,7 @@ export default function SessionPage() {
     }
 
     try {
+      // Build the full content with all modules
       let fullContent = ''
       for (const module of modules) {
         const moduleKey = `module_${module.moduleNumber || module.moduleIndex || modules.indexOf(module) + 1}`
@@ -351,8 +352,8 @@ export default function SessionPage() {
         fullContent += `<h2>${module.title}</h2>${tempContainer.innerHTML}`
       }
 
-      const printWindow = window.open("", "_blank")
-      printWindow.document.write(`
+      // Create the complete HTML document
+      const htmlContent = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -377,23 +378,32 @@ export default function SessionPage() {
           ${fullContent}
         </body>
         </html>
-      `)
-      printWindow.document.close()
-      printWindow.focus()
-      printWindow.onload = () => {
-        printWindow.print()
-        printWindow.close()
-      }
-      setTimeout(() => {
-        try { printWindow.print(); printWindow.close() } catch(e) {}
-      }, 800)
+      `
 
+      // Create a Blob with the HTML content
+      const blob = new Blob([htmlContent], { type: 'text/html' })
+      
+      // Create a download link
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${workbook.title} - ${profile?.name || 'student'} - ${new Date().toLocaleDateString()}.html`
+      
+      // Trigger download
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      // Clean up the URL
+      setTimeout(() => URL.revokeObjectURL(url), 100)
+
+      // Update download count in Firestore
       const sessionRef = doc(db, "WBsessions", sessionId)
       await updateDoc(sessionRef, { downloadCount: (session.downloadCount || 0) + 1 })
 
     } catch (err) {
       console.error("Error downloading:", err)
-      setError("Failed to generate PDF")
+      setError("Failed to generate download")
     }
   }
 
