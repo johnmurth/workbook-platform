@@ -12,6 +12,8 @@
     "compromise": "^14.15.1",
     "compromise-sentences": "^0.3.0",
     "firebase": "^10.14.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
     "pdf-lib": "^1.17.1",

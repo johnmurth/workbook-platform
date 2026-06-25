@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { collection, addDoc, serverTimestamp, doc, writeBatch } from 'firebase/firestore'
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
 import { processDocumentIntoModules } from '../lib/documentProcessor'
@@ -28,7 +28,6 @@ export default function UploadWorkbook() {
     const selected = e.target.files[0]
     if (!selected) return
     
-    // Validate file type
     const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
                           'application/vnd.ms-powerpoint', 'image/jpeg', 'image/png']
     if (!allowedTypes.includes(selected.type)) {
@@ -37,7 +36,6 @@ export default function UploadWorkbook() {
       return
     }
     
-    // Validate file size (max 50MB)
     if (selected.size > 50 * 1024 * 1024) {
       setError('File size must be less than 50MB')
       setFile(null)
@@ -79,13 +77,12 @@ export default function UploadWorkbook() {
       
       setModuleCount(totalModules)
       
-      // 2. Upload file to Firebase Storage
+      // 2. Upload original file to Firebase Storage
       const fileExtension = file.name.split('.').pop()
       const fileName = `${Date.now()}_${user.uid}.${fileExtension}`
       const storageRef = ref(storage, `workbooks/${user.uid}/${fileName}`)
       const uploadTask = uploadBytesResumable(storageRef, file)
 
-      // Track upload progress
       const downloadURL = await new Promise((resolve, reject) => {
         uploadTask.on(
           'state_changed',
@@ -116,7 +113,6 @@ export default function UploadWorkbook() {
         createdAt: serverTimestamp(),
         totalPurchases: 0,
         active: true,
-        // NEW: Module data
         totalModules: totalModules,
         moduleCount: totalModules,
         moduleTitles: modules.map(m => m.title),
@@ -127,35 +123,69 @@ export default function UploadWorkbook() {
       const workbookRef = await addDoc(collection(db, 'workbooks'), workbookData)
       console.log('✅ Workbook created:', workbookRef.id)
 
-      // 4. Save modules as sub-collection or separate collection
+      // ──────────────────────────────────────────────────────────────
+      // 4. Upload each module's HTML content to Firebase Storage
+      // ──────────────────────────────────────────────────────────────
+      console.log('📤 Uploading module content to Storage...')
+      
+      const moduleUrls = []
+      let moduleUploadCount = 0
+
+      for (const module of modules) {
+        const moduleFileName = `module_${module.number}_${Date.now()}.html`
+        const moduleStorageRef = ref(
+          storage, 
+          `workbooks/${user.uid}/${workbookRef.id}/${moduleFileName}`
+        )
+        
+        // Upload HTML string to Storage
+        await uploadString(moduleStorageRef, module.content || '', 'raw', {
+          contentType: 'text/html'
+        })
+        
+        const moduleUrl = await getDownloadURL(moduleStorageRef)
+        moduleUrls.push({
+          moduleNumber: module.number,
+          url: moduleUrl
+        })
+        
+        moduleUploadCount++
+        console.log(`  ✅ Uploaded module ${module.number}: ${module.title} (${module.content?.length || 0} chars)`)
+      }
+      
+      console.log(`✅ ${moduleUploadCount} module files uploaded to Storage`)
+
+      // ──────────────────────────────────────────────────────────────
+      // 5. Save module metadata to Firestore (with contentUrl instead of content)
+      // ──────────────────────────────────────────────────────────────
+      console.log('📝 Saving module metadata to Firestore...')
       const batch = writeBatch(db)
       
-      // Option A: Store modules in a sub-collection (recommended)
       modules.forEach((module, index) => {
         const moduleRef = doc(collection(db, 'workbooks', workbookRef.id, 'WBmodules'))
+        const moduleUrlData = moduleUrls.find(m => m.moduleNumber === module.number)
+        
         batch.set(moduleRef, {
           workbookId: workbookRef.id,
           moduleNumber: module.number,
           moduleIndex: index,
           title: module.title,
-          content: module.content,
-          fieldIds: module.fieldIds,
-          totalFields: module.totalFields,
+          contentUrl: moduleUrlData?.url || '', // ← Store URL, not full content
+          fieldIds: module.fieldIds || [],
+          totalFields: module.totalFields || module.fieldIds?.length || 0,
+          isCover: module.isCover || false,
           createdAt: serverTimestamp()
         })
       })
       
-      // Option B: Or store in top-level WBmodules collection
-      // (Choose one - I'll implement Option A as it's cleaner)
-      
       await batch.commit()
-      console.log('✅ Modules saved:', modules.length)
+      console.log(`✅ ${modules.length} module metadata saved to Firestore`)
       
       // Redirect to lecturer dashboard
       navigate('/lecturer')
     } catch (err) {
       console.error('Upload error:', err)
-      setError('Upload failed. Please try again.')
+      setError('Upload failed: ' + err.message)
     } finally {
       setUploading(false)
       setUploadProgress(0)

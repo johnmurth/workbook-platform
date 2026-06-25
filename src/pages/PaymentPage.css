@@ -128,6 +128,11 @@
 .payment-info p {
   margin: 8px 0;
 }
+#manual-check-btn {
+  width: 100%;
+  min-width: unset;
+  background-color: #00ff62a8;
+}
 @media (max-width: 640px) {
   .payment-card {
     padding: 24px;

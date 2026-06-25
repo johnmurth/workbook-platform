@@ -23,6 +23,15 @@ export default function ModuleNavigation({
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  // Auto-activate cover page on first load if it exists and nothing is selected yet
+  useEffect(() => {
+    if (modules.length === 0) return
+    const coverModule = modules.find(m => m.isCover)
+    if (coverModule && (currentModule === null || currentModule === undefined)) {
+      onModuleChange(coverModule.moduleNumber ?? 0)
+    }
+  }, [modules])
+
   const handleModuleClick = (moduleNum) => {
     onModuleChange(moduleNum)
     if (isMobile) {
@@ -34,7 +43,39 @@ export default function ModuleNavigation({
     setIsOpen(!isOpen)
   }
 
-  // If not mobile, render desktop version
+  const renderModuleItem = (module, index, mobile = false) => {
+    const moduleNum = module.moduleNumber ?? module.moduleIndex ?? (index + 1)
+    const label = module.isCover ? 'Cover Page' : (module.title || `Module ${moduleNum}`)
+    const progress = moduleProgress[moduleNum] || 0
+    const isActive = currentModule === moduleNum
+    const isCompleted = progress === 100
+
+    return (
+      <button
+        key={index}
+        className={`${mobile ? 'mobile-module-item' : 'module-item'} ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+        onClick={() => handleModuleClick(moduleNum)}
+      >
+        <div className="module-info">
+          <span className="module-number">
+            {module.isCover ? '📄' : `Module ${moduleNum}`}
+          </span>
+          <span className="module-title">{label}</span>
+        </div>
+        <div className="module-status">
+          {isCompleted && <span className="checkmark">✓</span>}
+          {!isCompleted && progress > 0 && (
+            <div className="mini-progress">
+              <div className="mini-progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+          )}
+          {progress === 0 && <span className="status-dot">○</span>}
+        </div>
+      </button>
+    )
+  }
+
+  // Desktop version
   if (!isMobile) {
     return (
       <div className="module-navigation desktop">
@@ -43,34 +84,7 @@ export default function ModuleNavigation({
           <span className="module-count">{modules.length} total</span>
         </div>
         <div className="module-list">
-          {modules.map((module, index) => {
-            const moduleNum = module.moduleNumber || module.moduleIndex || (index + 1)
-            const progress = moduleProgress[moduleNum] || 0
-            const isActive = currentModule === moduleNum
-            const isCompleted = progress === 100
-            
-            return (
-              <button
-                key={index}
-                className={`module-item ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
-                onClick={() => handleModuleClick(moduleNum)}
-              >
-                <div className="module-info">
-                  <span className="module-number">Module {moduleNum}</span>
-                  <span className="module-title">{module.title || `Module ${moduleNum}`}</span>
-                </div>
-                <div className="module-status">
-                  {isCompleted && <span className="checkmark">✓</span>}
-                  {!isCompleted && progress > 0 && (
-                    <div className="mini-progress">
-                      <div className="mini-progress-fill" style={{ width: `${progress}%` }} />
-                    </div>
-                  )}
-                  {progress === 0 && <span className="status-dot">○</span>}
-                </div>
-              </button>
-            )
-          })}
+          {modules.map((module, index) => renderModuleItem(module, index, false))}
         </div>
       </div>
     )
@@ -79,7 +93,6 @@ export default function ModuleNavigation({
   // Mobile version
   return (
     <>
-      {/* Hamburger Button */}
       <button 
         className={`hamburger-btn ${isOpen ? 'active' : ''}`}
         onClick={toggleMenu}
@@ -91,46 +104,17 @@ export default function ModuleNavigation({
         <span className="hamburger-label">Modules</span>
       </button>
 
-      {/* Overlay */}
       {isOpen && (
         <div className="nav-overlay" onClick={toggleMenu} />
       )}
 
-      {/* Mobile Menu */}
       <div className={`mobile-nav-panel ${isOpen ? 'open' : ''}`}>
         <div className="mobile-nav-header">
           <h3>📚 Modules</h3>
           <button className="close-btn" onClick={toggleMenu}>✕</button>
         </div>
         <div className="mobile-module-list">
-          {modules.map((module, index) => {
-            const moduleNum = module.moduleNumber || module.moduleIndex || (index + 1)
-            const progress = moduleProgress[moduleNum] || 0
-            const isActive = currentModule === moduleNum
-            const isCompleted = progress === 100
-            
-            return (
-              <button
-                key={index}
-                className={`mobile-module-item ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
-                onClick={() => handleModuleClick(moduleNum)}
-              >
-                <div className="module-info">
-                  <span className="module-number">Module {moduleNum}</span>
-                  <span className="module-title">{module.title || `Module ${moduleNum}`}</span>
-                </div>
-                <div className="module-status">
-                  {isCompleted && <span className="checkmark">✓</span>}
-                  {!isCompleted && progress > 0 && (
-                    <div className="mini-progress">
-                      <div className="mini-progress-fill" style={{ width: `${progress}%` }} />
-                    </div>
-                  )}
-                  {progress === 0 && <span className="status-dot">○</span>}
-                </div>
-              </button>
-            )
-          })}
+          {modules.map((module, index) => renderModuleItem(module, index, true))}
         </div>
       </div>
     </>

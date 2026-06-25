@@ -23,6 +23,7 @@ export const detectSections = (html) => {
 
 /**
  * Split HTML content into modules based on section headers
+ * NOW INCLUDES COVER PAGE as Module 0
  */
 export const splitIntoModules = (html, sections) => {
   if (sections.length === 0) {
@@ -31,12 +32,29 @@ export const splitIntoModules = (html, sections) => {
       number: 1,
       title: 'Module 1',
       content: html,
-      fieldIds: extractFieldIds(html)
+      fieldIds: extractFieldIds(html),
+      isCover: false
     }]
   }
 
   const modules = []
   
+  // ── STEP 1: Extract cover page (content before first section) ──
+  const firstSection = sections[0]
+  if (firstSection.index > 0) {
+    const coverContent = html.substring(0, firstSection.index).trim()
+    if (coverContent) {
+      modules.push({
+        number: 0,
+        title: 'Cover Page',
+        content: coverContent,
+        fieldIds: extractFieldIds(coverContent),
+        isCover: true
+      })
+    }
+  }
+  
+  // ── STEP 2: Process each section as a module ──
   for (let i = 0; i < sections.length; i++) {
     const current = sections[i]
     const next = sections[i + 1]
@@ -47,14 +65,15 @@ export const splitIntoModules = (html, sections) => {
     
     let content = html.substring(startIdx, endIdx).trim()
     
-    // Add section header back as module title
-    const moduleTitle = `Module ${current.number}: ${current.title}`
+    // Remove the "SECTION X:" header from the content itself
+    const contentWithoutHeader = content.replace(/^SECTION\s+\d+:\s*[^<]*?(?=<|$)/i, '').trim()
     
     modules.push({
       number: current.number,
-      title: moduleTitle,
-      content: content,
-      fieldIds: extractFieldIds(content)
+      title: current.title,
+      content: contentWithoutHeader || content,
+      fieldIds: extractFieldIds(content),
+      isCover: false
     })
   }
 

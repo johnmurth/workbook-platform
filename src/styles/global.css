@@ -99,7 +99,7 @@ input:focus, textarea:focus, select:focus {
 
 .btn-secondary {
   background: transparent; color: var(--ink);
-  border-color: var(--paper-3);
+  border-color: "var(--paper-3)";
 }
 .btn-secondary:hover { background: var(--paper-2); border-color: var(--paper-4); }
 

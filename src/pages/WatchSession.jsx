@@ -25,9 +25,11 @@ export default function WatchSession() {
   const [studentOnline, setStudentOnline] = useState(false)
   const [lastActive, setLastActive] = useState(null)
   const [processing, setProcessing] = useState(false)
+  const [loadingModule, setLoadingModule] = useState(false)
 
   const documentContainerRef = useRef(null)
   const documentReadyRef = useRef(false)
+  const moduleContentCache = useRef({})
 
   // Load session + modules
   useEffect(() => {
@@ -51,7 +53,6 @@ export default function WatchSession() {
         setModuleProgress(sessionData.moduleProgress || {})
         setCurrentModule(sessionData.currentModule || 1)
 
-        // Fetch modules
         await fetchModules(sessionData.workbookId, sessionData)
 
       } catch (err) {
@@ -65,7 +66,59 @@ export default function WatchSession() {
     loadSession()
   }, [sessionId, user])
 
-  // NEW: Fetch modules
+  // ── NEW: Load module content from Storage URL ──
+  const loadModuleContent = async (module) => {
+    if (!module) return
+    
+    setLoadingModule(true)
+    
+    try {
+      let content = ''
+      
+      // Check cache first
+      if (moduleContentCache.current[module.id]) {
+        console.log('📦 Using cached content for module:', module.moduleNumber)
+        content = moduleContentCache.current[module.id]
+      } else if (module.contentUrl) {
+        // Load from Storage
+        console.log('📥 Fetching module content from Storage:', module.contentUrl)
+        const response = await fetch(module.contentUrl)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch module content: ${response.status}`)
+        }
+        content = await response.text()
+        moduleContentCache.current[module.id] = content
+        console.log('✅ Module content loaded and cached, length:', content.length)
+      } else if (module.content) {
+        // Fallback: use content from Firestore
+        console.log('📄 Using Firestore content for module:', module.moduleNumber)
+        content = module.content
+        moduleContentCache.current[module.id] = content
+      } else {
+        throw new Error('No content available for this module')
+      }
+      
+      setCurrentModuleContent(content)
+      
+      // Load answers after DOM ready
+      setTimeout(() => {
+        if (documentContainerRef.current) {
+          const moduleKey = `module_${module.moduleNumber}`
+          const moduleAns = answers[moduleKey] || {}
+          loadSavedAnswers(documentContainerRef.current, moduleAns)
+          lockDocument(documentContainerRef.current)
+        }
+      }, 200)
+      
+    } catch (err) {
+      console.error('❌ Error loading module content:', err)
+      setError(`Failed to load module: ${err.message}`)
+    } finally {
+      setLoadingModule(false)
+    }
+  }
+
+  // ── Fetch modules ──
   const fetchModules = async (workbookId, sessionData) => {
     try {
       const modulesQuery = query(
@@ -80,8 +133,8 @@ export default function WatchSession() {
           id: doc.id,
           ...doc.data()
         }))
+        console.log('✅ Modules found in sub-collection:', modulesList.length)
       } else {
-        // Fallback
         const fallbackQuery = query(
           collection(db, 'WBmodules'),
           where('workbookId', '==', workbookId),
@@ -92,6 +145,7 @@ export default function WatchSession() {
           id: doc.id,
           ...doc.data()
         }))
+        console.log('✅ Modules found in fallback:', modulesList.length)
       }
       
       if (modulesList.length === 0) {
@@ -100,24 +154,15 @@ export default function WatchSession() {
         return
       }
       
+      console.log('📦 Modules list:', modulesList.map(m => ({ number: m.moduleNumber, title: m.title, hasUrl: !!m.contentUrl })))
       setModules(modulesList)
       
-      const targetModule = sessionData.currentModule || 1
+      const targetModule = sessionData.currentModule ?? 1
       const moduleToLoad = modulesList.find(m => m.moduleNumber === targetModule) || modulesList[0]
       setCurrentModule(moduleToLoad.moduleNumber)
-      setCurrentModuleContent(moduleToLoad.content)
-      
       documentReadyRef.current = true
       
-      // Load answers after DOM ready
-      setTimeout(() => {
-        if (documentContainerRef.current) {
-          const moduleKey = `module_${moduleToLoad.moduleNumber}`
-          const moduleAns = sessionData.answers?.[moduleKey] || {}
-          loadSavedAnswers(documentContainerRef.current, moduleAns)
-          lockDocument(documentContainerRef.current)
-        }
-      }, 200)
+      await loadModuleContent(moduleToLoad)
       
     } catch (err) {
       console.error('Error fetching modules:', err)
@@ -125,7 +170,7 @@ export default function WatchSession() {
     }
   }
 
-  // NEW: Change module (lecturer view)
+  // ── Change module (lecturer view) ──
   const handleModuleChange = (moduleNumber) => {
     if (moduleNumber === currentModule) return
     
@@ -133,20 +178,16 @@ export default function WatchSession() {
     if (!newModule) return
     
     setCurrentModule(moduleNumber)
-    setCurrentModuleContent(newModule.content)
     
-    // Load answers for this module
+    // Load content for the new module
+    loadModuleContent(newModule)
+    
+    // Scroll to top
     setTimeout(() => {
       if (documentContainerRef.current) {
-        const moduleKey = `module_${moduleNumber}`
-        const moduleAns = answers[moduleKey] || {}
-        loadSavedAnswers(documentContainerRef.current, moduleAns)
-        lockDocument(documentContainerRef.current)
-        
-        // FIX: Scroll to top when module changes
         documentContainerRef.current.scrollTop = 0
-        window.scrollTo({ top: 0, behavior: 'smooth' })
       }
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     }, 100)
   }
 
@@ -185,20 +226,12 @@ export default function WatchSession() {
         const newModule = modules.find(m => m.moduleNumber === data.currentModule)
         if (newModule) {
           setCurrentModule(data.currentModule)
-          setCurrentModuleContent(newModule.content)
-          setTimeout(() => {
-            if (documentContainerRef.current) {
-              const moduleKey = `module_${data.currentModule}`
-              const moduleAns = updatedAnswers[moduleKey] || {}
-              loadSavedAnswers(documentContainerRef.current, moduleAns)
-              lockDocument(documentContainerRef.current)
-            }
-          }, 100)
+          loadModuleContent(newModule)
         }
       }
 
       // Push answers into rendered document
-      if (documentContainerRef.current && documentReadyRef.current) {
+      if (documentContainerRef.current && documentReadyRef.current && currentModuleContent) {
         const moduleKey = `module_${currentModule}`
         const moduleAns = updatedAnswers[moduleKey] || {}
         loadSavedAnswers(documentContainerRef.current, moduleAns)
@@ -207,16 +240,16 @@ export default function WatchSession() {
     })
 
     return () => unsubscribe()
-  }, [sessionId, currentModule, modules])
+  }, [sessionId, currentModule, modules, currentModuleContent])
 
   // Apply answers after content loads
   useEffect(() => {
-    if (!documentContainerRef.current || !currentModuleContent || processing) return
+    if (!documentContainerRef.current || !currentModuleContent || loadingModule) return
     const moduleKey = `module_${currentModule}`
     const moduleAns = answers[moduleKey] || {}
     loadSavedAnswers(documentContainerRef.current, moduleAns)
     lockDocument(documentContainerRef.current)
-  }, [currentModuleContent, processing])
+  }, [currentModuleContent, loadingModule])
 
   const formatLastActive = () => {
     if (!lastActive) return 'Never'
@@ -251,7 +284,6 @@ export default function WatchSession() {
 
   const totalModules = modules.length
   const completedModules = Object.values(moduleProgress).filter(p => p === 100).length
-
 
   return (
     <div>
@@ -334,7 +366,9 @@ export default function WatchSession() {
                 </div>
                 
                 <div className="document-viewer card" ref={documentContainerRef}>
-                  {currentModuleContent ? (
+                  {loadingModule ? (
+                    <div className="loading-document"><span className="spinner" /> Loading module...</div>
+                  ) : currentModuleContent ? (
                     <div className="html-viewer" dangerouslySetInnerHTML={{ __html: currentModuleContent }} />
                   ) : (
                     <div className="empty-document">No content available</div>

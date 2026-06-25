@@ -28,12 +28,14 @@ export default function SessionPage() {
   const [moduleAnswers, setModuleAnswers] = useState({})
   const [moduleProgress, setModuleProgress] = useState({})
   const [processing, setProcessing] = useState(false)
+  const [loadingModule, setLoadingModule] = useState(false)
 
   const saveTimeoutRef = useRef(null)
   const documentContainerRef = useRef(null)
   const contentContainerRef = useRef(null)
   const handleFieldChangeRef = useRef(null)
   const heartbeatIntervalRef = useRef(null)
+  const moduleContentCache = useRef({})
 
   // ── HEARTBEAT: Update lastActive every 10 seconds ──
   const updateLastActive = async () => {
@@ -42,20 +44,15 @@ export default function SessionPage() {
       const sessionRef = doc(db, 'WBsessions', sessionId)
       await updateDoc(sessionRef, { lastActive: new Date() })
     } catch (err) {
-      // Silent fail - don't log every heartbeat
+      // Silent fail
     }
   }
 
   useEffect(() => {
-    // Start heartbeat when session loads
     if (sessionId) {
-      // Update immediately
       updateLastActive()
-      
-      // Then every 10 seconds
       heartbeatIntervalRef.current = setInterval(updateLastActive, 10000)
     }
-
     return () => {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current)
@@ -68,11 +65,9 @@ export default function SessionPage() {
     const handleUserInteraction = () => {
       updateLastActive()
     }
-
     window.addEventListener('click', handleUserInteraction)
     window.addEventListener('scroll', handleUserInteraction)
     window.addEventListener('keydown', handleUserInteraction)
-
     return () => {
       window.removeEventListener('click', handleUserInteraction)
       window.removeEventListener('scroll', handleUserInteraction)
@@ -124,6 +119,7 @@ export default function SessionPage() {
     loadSession()
   }, [sessionId, user, profile])
 
+  // ── Fetch modules and load content ──
   const fetchModules = async (workbookId, sessionData) => {
     try {
       console.log('📚 Fetching modules for workbook:', workbookId)
@@ -162,22 +158,14 @@ export default function SessionPage() {
         return
       }
       
-      console.log('📦 Modules list:', modulesList)
+      console.log('📦 Modules list:', modulesList.map(m => ({ number: m.moduleNumber, title: m.title, hasUrl: !!m.contentUrl })))
       setModules(modulesList)
       
-      const targetModule = sessionData.currentModule || 1
-      console.log('🎯 Target module:', targetModule)
+      // Load the first module
+      const targetModule = sessionData.currentModule ?? 1
+      const moduleToLoad = modulesList.find(m => m.moduleNumber === targetModule) || modulesList[0]
       
-      const moduleToLoad = modulesList.find(m => {
-        const mNum = m.moduleNumber || m.moduleIndex || modulesList.indexOf(m) + 1
-        return mNum === targetModule
-      }) || modulesList[0]
-      
-      const moduleNum = moduleToLoad.moduleNumber || moduleToLoad.moduleIndex || 1
-      console.log('📄 Loading module:', moduleNum, 'Content length:', moduleToLoad.content?.length || 0)
-      
-      setCurrentModule(moduleNum)
-      setCurrentModuleContent(moduleToLoad.content || '')
+      await loadModuleContent(moduleToLoad)
       
     } catch (err) {
       console.error('Error fetching modules:', err)
@@ -185,8 +173,53 @@ export default function SessionPage() {
     }
   }
 
+  // ── NEW: Load module content from Storage URL ──
+  const loadModuleContent = async (module) => {
+    if (!module) return
+    
+    setLoadingModule(true)
+    
+    try {
+      let content = ''
+      
+      // Check cache first
+      if (moduleContentCache.current[module.id]) {
+        console.log('📦 Using cached content for module:', module.moduleNumber)
+        content = moduleContentCache.current[module.id]
+      } else if (module.contentUrl) {
+        // Load from Storage
+        console.log('📥 Fetching module content from Storage:', module.contentUrl)
+        const response = await fetch(module.contentUrl)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch module content: ${response.status}`)
+        }
+        content = await response.text()
+        // Cache it
+        moduleContentCache.current[module.id] = content
+        console.log('✅ Module content loaded and cached, length:', content.length)
+      } else if (module.content) {
+        // Fallback: use content from Firestore (if still stored)
+        console.log('📄 Using Firestore content for module:', module.moduleNumber)
+        content = module.content
+        moduleContentCache.current[module.id] = content
+      } else {
+        throw new Error('No content available for this module')
+      }
+      
+      setCurrentModule(module.moduleNumber)
+      setCurrentModuleContent(content)
+      
+    } catch (err) {
+      console.error('❌ Error loading module content:', err)
+      setError(`Failed to load module: ${err.message}`)
+    } finally {
+      setLoadingModule(false)
+    }
+  }
+
+  // ── Handle module change ──
   const handleModuleChange = async (moduleNumber) => {
-    if (!moduleNumber) {
+    if (moduleNumber === null || moduleNumber === undefined) {
       console.error('❌ Invalid module number:', moduleNumber)
       return
     }
@@ -195,11 +228,7 @@ export default function SessionPage() {
     
     console.log('🔄 Switching to module:', moduleNumber)
     
-    const newModule = modules.find(m => {
-      const mNum = m.moduleNumber || m.moduleIndex || modules.indexOf(m) + 1
-      return mNum === moduleNumber
-    })
-    
+    const newModule = modules.find(m => m.moduleNumber === moduleNumber)
     if (!newModule) {
       console.error('❌ Module not found:', moduleNumber)
       return
@@ -210,8 +239,8 @@ export default function SessionPage() {
     }
     saveAnswers(answers, true)
     
-    setCurrentModule(moduleNumber)
-    setCurrentModuleContent(newModule.content || '')
+    // Load the new module content
+    await loadModuleContent(newModule)
     
     const moduleAnswerKey = `module_${moduleNumber}`
     const moduleAns = answers[moduleAnswerKey] || {}
@@ -247,10 +276,7 @@ export default function SessionPage() {
     setAnswers(newAnswers)
     setModuleAnswers(newModuleAns)
     
-    const currentModuleData = modules.find(m => {
-      const mNum = m.moduleNumber || m.moduleIndex || modules.indexOf(m) + 1
-      return mNum === currentModule
-    })
+    const currentModuleData = modules.find(m => m.moduleNumber === currentModule)
     
     if (currentModuleData) {
       const progress = calculateModuleProgress(currentModuleData.fieldIds, newModuleAns)
@@ -304,17 +330,7 @@ export default function SessionPage() {
 
   // Apply answers to DOM when module content changes
   useEffect(() => {
-    console.log('🔧 Applying module content - currentModule:', currentModule, 'content exists:', !!currentModuleContent)
-    
-    if (!documentContainerRef.current) {
-      console.log('⚠️ documentContainerRef not ready')
-      return
-    }
-    
-    if (!currentModuleContent) {
-      console.log('⚠️ No module content to display')
-      return
-    }
+    if (!documentContainerRef.current || !currentModuleContent || loadingModule) return
     
     const container = documentContainerRef.current
     
@@ -325,12 +341,11 @@ export default function SessionPage() {
     
     const moduleKey = `module_${currentModule}`
     const moduleAns = answers[moduleKey] || {}
-    console.log('📝 Loading answers for module:', currentModule, 'answers:', Object.keys(moduleAns).length)
     loadSavedAnswers(container, moduleAns)
     
     container.scrollTop = 0
     
-  }, [currentModuleContent, currentModule])
+  }, [currentModuleContent, currentModule, loadingModule])
 
   const handleDownload = async () => {
     if (!session || !workbook) return
@@ -340,70 +355,119 @@ export default function SessionPage() {
     }
 
     try {
-      // Build the full content with all modules
+      setProcessing(true)
+
       let fullContent = ''
       for (const module of modules) {
-        const moduleKey = `module_${module.moduleNumber || module.moduleIndex || modules.indexOf(module) + 1}`
+        let content = ''
+        
+        // Try to get content from cache first
+        if (moduleContentCache.current[module.id]) {
+          content = moduleContentCache.current[module.id]
+        } else if (module.contentUrl) {
+          // Fetch from Storage
+          const response = await fetch(module.contentUrl)
+          if (response.ok) {
+            content = await response.text()
+            moduleContentCache.current[module.id] = content
+          }
+        } else if (module.content) {
+          content = module.content
+        }
+        
+        const moduleKey = `module_${module.moduleNumber}`
         const moduleAns = answers[moduleKey] || {}
         
         const tempContainer = document.createElement('div')
-        tempContainer.innerHTML = module.content
+        tempContainer.innerHTML = content
         loadSavedAnswers(tempContainer, moduleAns)
-        fullContent += `<h2>${module.title}</h2>${tempContainer.innerHTML}`
+        
+        const moduleTitle = module.isCover
+          ? ''
+          : `<h2 style="color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; margin-bottom: 20px;">
+              ${module.title || `Module ${module.moduleNumber}`}
+            </h2>`
+
+        const isLast = module.moduleNumber === modules[modules.length - 1].moduleNumber
+        fullContent += `
+          <div style="${isLast ? '' : 'page-break-after: always;'} margin-bottom: 30px; padding-bottom: 20px;">
+            ${moduleTitle}
+            ${tempContainer.innerHTML}
+          </div>
+        `
       }
 
-      // Create the complete HTML document
       const htmlContent = `
         <!DOCTYPE html>
         <html>
         <head>
+          <meta charset="UTF-8">
           <title>${workbook.title}</title>
           <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { font-family: Arial, sans-serif; font-size: 11pt; color: #000; padding: 20mm; }
-            h1, h2, h3, h4 { margin: 0.8em 0 0.4em; }
-            p { margin: 0.4em 0; }
-            table { width: 100%; border-collapse: collapse; margin: 0.5em 0; }
-            td, th { border: 1px solid #999; padding: 4px 8px; vertical-align: top; }
+            body { 
+              font-family: Arial, sans-serif; 
+              font-size: 12pt; 
+              line-height: 1.6;
+              color: #000; 
+              padding: 40px 60px;
+              max-width: 1000px;
+              margin: 0 auto;
+            }
+            .header { 
+              text-align: center; 
+              margin-bottom: 40px; 
+              padding-bottom: 30px; 
+              border-bottom: 3px solid #3498db; 
+            }
+            .title { font-size: 24pt; font-weight: bold; color: #2c3e50; }
+            .meta { font-size: 11pt; color: #7f8c8d; margin-top: 5px; }
+            h2 { font-size: 18pt; color: #2c3e50; margin: 1em 0 0.5em 0; }
+            p { margin: 0.5em 0; }
+            table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+            th, td { border: 1px solid #bdc3c7; padding: 8px 12px; text-align: left; }
+            th { background: #ecf0f1; }
             @media print {
-              body { padding: 0; }
-              @page { margin: 15mm; }
+              body { padding: 20mm 15mm; }
+              @page { margin: 20mm 15mm; }
             }
           </style>
         </head>
         <body>
-          <p style="font-size:9pt;color:#666;margin-bottom:12px;">
-            ${workbook.title} &nbsp;|&nbsp; ${profile?.name || ""} &nbsp;|&nbsp; ${new Date().toLocaleDateString()}
-          </p>
           ${fullContent}
+          <div class="footer">Generated on ${new Date().toLocaleString()}</div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 500);
+            };
+          <\/script>
         </body>
         </html>
       `
 
-      // Create a Blob with the HTML content
       const blob = new Blob([htmlContent], { type: 'text/html' })
-      
-      // Create a download link
       const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${workbook.title} - ${profile?.name || 'student'} - ${new Date().toLocaleDateString()}.html`
+      const newWindow = window.open(url, '_blank')
       
-      // Trigger download
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      
-      // Clean up the URL
-      setTimeout(() => URL.revokeObjectURL(url), 100)
+      if (!newWindow) {
+        setError('Please allow popups for this site')
+        setProcessing(false)
+        return
+      }
 
-      // Update download count in Firestore
       const sessionRef = doc(db, "WBsessions", sessionId)
-      await updateDoc(sessionRef, { downloadCount: (session.downloadCount || 0) + 1 })
+      await updateDoc(sessionRef, { 
+        downloadCount: (session.downloadCount || 0) + 1 
+      })
+
+      setProcessing(false)
 
     } catch (err) {
       console.error("Error downloading:", err)
-      setError("Failed to generate download")
+      setError("Failed to generate PDF: " + err.message)
+      setProcessing(false)
     }
   }
 
@@ -487,10 +551,7 @@ export default function SessionPage() {
                   <div className="module-title-left">
                     <h2>
                       {(() => {
-                        const currentModuleData = modules.find(m => {
-                          const mNum = m.moduleNumber || m.moduleIndex || modules.indexOf(m) + 1
-                          return mNum === currentModule
-                        })
+                        const currentModuleData = modules.find(m => m.moduleNumber === currentModule)
                         const moduleTitle = currentModuleData?.title || ''
                         return `Module ${currentModule}: ${moduleTitle}`
                       })()}
@@ -526,8 +587,10 @@ export default function SessionPage() {
                 </div>
                 
                 <div className="document-viewer card" ref={documentContainerRef}>
-                  {processing ? (
-                    <div className="loading-document"><span className="spinner"></span> Processing module...</div>
+                  {loadingModule ? (
+                    <div className="loading-document"><span className="spinner"></span> Loading module...</div>
+                  ) : processing ? (
+                    <div className="loading-document"><span className="spinner"></span> Processing...</div>
                   ) : currentModuleContent ? (
                     <div className="html-viewer" dangerouslySetInnerHTML={{ __html: currentModuleContent }} />
                   ) : (

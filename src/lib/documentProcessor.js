@@ -166,14 +166,13 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
   return { 
     html: container.innerHTML, 
     fields,
-    // NEW: Detect sections and split into modules
     sections: detectSections(container.innerHTML),
     allFieldIds: fields.map(f => f.id)
   }
 }
 
 // ============================================================
-// NEW: Process document and split into modules
+// Process document and split into modules
 // ============================================================
 export const processDocumentIntoModules = async (arrayBuffer) => {
   // First, process the document normally
@@ -182,7 +181,7 @@ export const processDocumentIntoModules = async (arrayBuffer) => {
   // Rename section headers to module headers
   const renamedHtml = renameSectionsToModules(html)
   
-  // Split into modules
+  // Split into modules (includes cover page as Module 0)
   const modules = splitIntoModules(renamedHtml, sections)
   
   // Add field IDs to each module

@@ -505,7 +505,8 @@ export default function PaymentPage() {
                   <div className="manual-check-section">
                     <button
                       onClick={handleManualCheck}
-                      className="btn btn-secondary"
+                      className="btn btn-secondary" 
+                      id="manual-check-btn"
                       disabled={checkingManually || !isPhoneValid()}
                     >
                       {checkingManually ? (
@@ -615,6 +616,7 @@ export default function PaymentPage() {
                   <button
                     onClick={handleManualCheck}
                     className="btn btn-secondary"
+                    id="manual-check-btn"
                     disabled={checkingManually || processing || !isPhoneValid()}
                   >
                     {checkingManually ? (
