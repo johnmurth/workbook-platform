@@ -327,14 +327,7 @@ export default function UploadWorkbook() {
           </div>
 
           <div className="upload-tips">
-            <h4>📌 Tips for best results:</h4>
-            <ul>
-              <li>Use "SECTION X:" headers to create multiple modules automatically</li>
-              <li>Clear, descriptive titles help students find your workbooks</li>
-              <li>PDF files work best for consistent formatting</li>
-              <li>Set reasonable prices based on content value</li>
-              <li>Download limits prevent sharing of completed work</li>
-            </ul>
+
           </div>
         </div>
       </div>
