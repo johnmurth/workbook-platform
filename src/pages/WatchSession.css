@@ -540,3 +540,169 @@
     min-height: auto;
   }
 }
+
+/* Approval Panel */
+.approval-panel {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: white;
+  border-left: 4px solid #3498db;
+}
+
+.approval-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.approval-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.status-badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status-badge.pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-badge.approved {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-badge.revoked {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-badge.not-started {
+  background: #e9ecef;
+  color: #6c757d;
+}
+
+.approval-message {
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.approval-message.success {
+  background: #d4edda;
+  color: #155724;
+}
+
+.approval-message.info {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.approval-message.warning {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.remarks-section {
+  margin: 16px 0;
+}
+
+.remarks-section label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.remarks-section textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+
+.remarks-section textarea:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 3px rgba(52,152,219,0.1);
+}
+
+.remarks-section textarea.error {
+  border-color: #dc3545;
+}
+
+.remarks-section textarea.error:focus {
+  box-shadow: 0 0 0 3px rgba(220,53,69,0.1);
+}
+
+.error-message {
+  color: #dc3545;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.remarks-display {
+  background: #f8f9fa;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin: 12px 0;
+  border-left: 3px solid #6c757d;
+}
+
+.remarks-display strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.remarks-display p {
+  margin: 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.btn-success {
+  background: #28a745;
+  color: white;
+}
+
+.btn-success:hover {
+  background: #218838;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #c82333;
+}
+
+.approval-actions .btn {
+  padding: 10px 24px;
+  font-size: 14px;
+  min-width: 120px;
+}
+
+.approval-actions .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

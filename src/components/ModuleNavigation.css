@@ -351,3 +351,50 @@
   }
 }
 
+/* Status badges in navigation */
+.module-item .status-badge {
+  font-size: 14px;
+  margin-left: 4px;
+}
+
+.module-item.status-approved {
+  border-left: 3px solid #28a745;
+}
+
+.module-item.status-pending {
+  border-left: 3px solid #ffc107;
+}
+
+.module-item.status-revoked {
+  border-left: 3px solid #dc3545;
+}
+
+.module-item.status-not-started {
+  border-left: 3px solid #e9ecef;
+}
+
+.module-item .module-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-module-item .status-badge {
+  font-size: 16px;
+}
+
+.mobile-module-item.status-approved {
+  border-left: 3px solid #28a745;
+}
+
+.mobile-module-item.status-pending {
+  border-left: 3px solid #ffc107;
+}
+
+.mobile-module-item.status-revoked {
+  border-left: 3px solid #dc3545;
+}
+
+.mobile-module-item.status-not-started {
+  border-left: 3px solid #e9ecef;
+}

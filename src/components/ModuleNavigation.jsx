@@ -6,7 +6,8 @@ export default function ModuleNavigation({
   modules, 
   currentModule, 
   onModuleChange,
-  moduleProgress = {}
+  moduleProgress = {},
+  moduleStatus = {}
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -43,17 +44,34 @@ export default function ModuleNavigation({
     setIsOpen(!isOpen)
   }
 
+  // ── Get status display for module ──
+  const getStatusDisplay = (moduleNum) => {
+    const status = moduleStatus[moduleNum]?.status || 'not_started'
+    
+    switch(status) {
+      case 'approved':
+        return { icon: '✅', label: 'Approved', className: 'status-approved' }
+      case 'pending':
+        return { icon: '⏳', label: 'Pending', className: 'status-pending' }
+      case 'revoked':
+        return { icon: '❌', label: 'Revoked', className: 'status-revoked' }
+      default:
+        return { icon: '📝', label: 'Not Started', className: 'status-not-started' }
+    }
+  }
+
   const renderModuleItem = (module, index, mobile = false) => {
     const moduleNum = module.moduleNumber ?? module.moduleIndex ?? (index + 1)
     const label = module.isCover ? 'Cover Page' : (module.title || `Module ${moduleNum}`)
     const progress = moduleProgress[moduleNum] || 0
     const isActive = currentModule === moduleNum
     const isCompleted = progress === 100
+    const status = getStatusDisplay(moduleNum)
 
     return (
       <button
         key={index}
-        className={`${mobile ? 'mobile-module-item' : 'module-item'} ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+        className={`${mobile ? 'mobile-module-item' : 'module-item'} ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${status.className}`}
         onClick={() => handleModuleClick(moduleNum)}
       >
         <div className="module-info">
@@ -63,13 +81,14 @@ export default function ModuleNavigation({
           <span className="module-title">{label}</span>
         </div>
         <div className="module-status">
-          {isCompleted && <span className="checkmark">✓</span>}
+          <span className="status-badge" title={status.label}>
+            {status.icon}
+          </span>
           {!isCompleted && progress > 0 && (
             <div className="mini-progress">
               <div className="mini-progress-fill" style={{ width: `${progress}%` }} />
             </div>
           )}
-          {progress === 0 && <span className="status-dot">○</span>}
         </div>
       </button>
     )

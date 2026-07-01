@@ -1,7 +1,7 @@
 // src/pages/WatchSession.jsx
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, onSnapshot, collection, query, getDocs, orderBy } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot, collection, query, getDocs, orderBy, updateDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
 import { loadSavedAnswers } from '../lib/documentProcessor'
@@ -22,16 +22,21 @@ export default function WatchSession() {
   const [error, setError] = useState('')
   const [answers, setAnswers] = useState({})
   const [moduleProgress, setModuleProgress] = useState({})
+  const [moduleStatus, setModuleStatus] = useState({})
   const [studentOnline, setStudentOnline] = useState(false)
   const [lastActive, setLastActive] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [loadingModule, setLoadingModule] = useState(false)
+  const [remarks, setRemarks] = useState('')
+  const [showRemarkError, setShowRemarkError] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
 
   const documentContainerRef = useRef(null)
   const documentReadyRef = useRef(false)
   const moduleContentCache = useRef({})
+  const [lecturerLockedModule, setLecturerLockedModule] = useState(null)
 
-  // Load session + modules
+  // ── Load session + modules ──
   useEffect(() => {
     const loadSession = async () => {
       try {
@@ -51,6 +56,7 @@ export default function WatchSession() {
         setSession(sessionData)
         setAnswers(sessionData.answers || {})
         setModuleProgress(sessionData.moduleProgress || {})
+        setModuleStatus(sessionData.moduleStatus || {})
         setCurrentModule(sessionData.currentModule || 1)
 
         await fetchModules(sessionData.workbookId, sessionData)
@@ -66,7 +72,7 @@ export default function WatchSession() {
     loadSession()
   }, [sessionId, user])
 
-  // ── NEW: Load module content from Storage URL ──
+  // ── Load module content from Storage URL ──
   const loadModuleContent = async (module) => {
     if (!module) return
     
@@ -75,12 +81,10 @@ export default function WatchSession() {
     try {
       let content = ''
       
-      // Check cache first
       if (moduleContentCache.current[module.id]) {
         console.log('📦 Using cached content for module:', module.moduleNumber)
         content = moduleContentCache.current[module.id]
       } else if (module.contentUrl) {
-        // Load from Storage
         console.log('📥 Fetching module content from Storage:', module.contentUrl)
         const response = await fetch(module.contentUrl)
         if (!response.ok) {
@@ -90,7 +94,6 @@ export default function WatchSession() {
         moduleContentCache.current[module.id] = content
         console.log('✅ Module content loaded and cached, length:', content.length)
       } else if (module.content) {
-        // Fallback: use content from Firestore
         console.log('📄 Using Firestore content for module:', module.moduleNumber)
         content = module.content
         moduleContentCache.current[module.id] = content
@@ -162,6 +165,10 @@ export default function WatchSession() {
       setCurrentModule(moduleToLoad.moduleNumber)
       documentReadyRef.current = true
       
+      // Set remarks for current module from Firestore
+      const status = sessionData.moduleStatus?.[moduleToLoad.moduleNumber] || {}
+      setRemarks(status.remarks || '')
+      
       await loadModuleContent(moduleToLoad)
       
     } catch (err) {
@@ -177,12 +184,18 @@ export default function WatchSession() {
     const newModule = modules.find(m => m.moduleNumber === moduleNumber)
     if (!newModule) return
     
+    // Lock the lecturer's view to this module
+    setLecturerLockedModule(moduleNumber)
+    
     setCurrentModule(moduleNumber)
     
-    // Load content for the new module
+    // Load remarks from moduleStatus for the new module
+    const status = moduleStatus[moduleNumber] || {}
+    setRemarks(status.remarks || '')
+    setShowRemarkError(false)
+    
     loadModuleContent(newModule)
     
-    // Scroll to top
     setTimeout(() => {
       if (documentContainerRef.current) {
         documentContainerRef.current.scrollTop = 0
@@ -204,7 +217,93 @@ export default function WatchSession() {
     })
   }
 
-  // Real-time listener
+  // ── Handle Approve ──
+  const handleApprove = async () => {
+    setActionLoading(true)
+    setShowRemarkError(false)
+    
+    try {
+      const sessionRef = doc(db, 'WBsessions', sessionId)
+      
+      await updateDoc(sessionRef, {
+        [`moduleStatus.${currentModule}`]: {
+          status: 'approved',
+          remarks: remarks || '',
+          submittedAt: moduleStatus[currentModule]?.submittedAt || new Date(),
+          reviewedAt: new Date(),
+          reviewedBy: user.uid
+        },
+        lastActive: new Date()
+      })
+      
+      // Update local state
+      setModuleStatus(prev => ({
+        ...prev,
+        [currentModule]: {
+          ...prev[currentModule],
+          status: 'approved',
+          remarks: remarks || '',
+          reviewedAt: new Date(),
+          reviewedBy: user.uid
+        }
+      }))
+      
+    } catch (err) {
+      console.error('Error approving module:', err)
+      setError('Failed to approve module. Please try again.')
+      setTimeout(() => setError(''), 5000)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // ── Handle Revoke ──
+  const handleRevoke = async () => {
+    // Remarks are required for revoke
+    if (!remarks || remarks.trim() === '') {
+      setShowRemarkError(true)
+      return
+    }
+    
+    setActionLoading(true)
+    setShowRemarkError(false)
+    
+    try {
+      const sessionRef = doc(db, 'WBsessions', sessionId)
+      
+      await updateDoc(sessionRef, {
+        [`moduleStatus.${currentModule}`]: {
+          status: 'revoked',
+          remarks: remarks.trim(),
+          submittedAt: moduleStatus[currentModule]?.submittedAt || new Date(),
+          reviewedAt: new Date(),
+          reviewedBy: user.uid
+        },
+        lastActive: new Date()
+      })
+      
+      // Update local state
+      setModuleStatus(prev => ({
+        ...prev,
+        [currentModule]: {
+          ...prev[currentModule],
+          status: 'revoked',
+          remarks: remarks.trim(),
+          reviewedAt: new Date(),
+          reviewedBy: user.uid
+        }
+      }))
+      
+    } catch (err) {
+      console.error('Error revoking module:', err)
+      setError('Failed to revoke module. Please try again.')
+      setTimeout(() => setError(''), 5000)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // ── Real-time listener ──
   useEffect(() => {
     if (!sessionId) return
 
@@ -216,13 +315,17 @@ export default function WatchSession() {
       const updatedAnswers = data.answers || {}
       setAnswers(updatedAnswers)
       setModuleProgress(data.moduleProgress || {})
+      setModuleStatus(data.moduleStatus || {})
+
+      // ── DO NOT update remarks here ──
+      // This prevents the textarea from being reset while typing
 
       const lastActiveTime = data.lastActive?.toDate?.() || new Date(0)
       setStudentOnline((new Date() - lastActiveTime) < 30000)
       setLastActive(lastActiveTime)
 
-      // Update current module if changed
-      if (data.currentModule && data.currentModule !== currentModule) {
+      // ── ONLY auto-jump if lecturer hasn't locked a module ──
+      if (lecturerLockedModule === null && data.currentModule && data.currentModule !== currentModule) {
         const newModule = modules.find(m => m.moduleNumber === data.currentModule)
         if (newModule) {
           setCurrentModule(data.currentModule)
@@ -230,7 +333,6 @@ export default function WatchSession() {
         }
       }
 
-      // Push answers into rendered document
       if (documentContainerRef.current && documentReadyRef.current && currentModuleContent) {
         const moduleKey = `module_${currentModule}`
         const moduleAns = updatedAnswers[moduleKey] || {}
@@ -240,7 +342,7 @@ export default function WatchSession() {
     })
 
     return () => unsubscribe()
-  }, [sessionId, currentModule, modules, currentModuleContent])
+  }, [sessionId, currentModule, modules, currentModuleContent, lecturerLockedModule])
 
   // Apply answers after content loads
   useEffect(() => {
@@ -257,6 +359,176 @@ export default function WatchSession() {
     if (diff < 60) return `${diff}s ago`
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
     return lastActive.toLocaleTimeString()
+  }
+
+  // ── Render approval panel ──
+  const renderApprovalPanel = () => {
+    const status = moduleStatus[currentModule]?.status || 'not_started'
+    
+    if (status === 'not_started') {
+      return (
+        <div className="approval-panel card">
+          <div className="approval-header">
+            <h3>📋 Module {currentModule} - Not Started</h3>
+            <span className="status-badge not-started">Not Started</span>
+          </div>
+          <div className="approval-body">
+            <p className="text-muted">Student hasn't submitted this module yet.</p>
+          </div>
+        </div>
+      )
+    }
+    
+    return (
+      <div className="approval-panel card">
+        <div className="approval-header">
+          <h3>📋 Module {currentModule} Review</h3>
+          <span className={`status-badge ${status}`}>
+            {status === 'approved' && '✅ Approved'}
+            {status === 'pending' && '⏳ Pending'}
+            {status === 'revoked' && '❌ Revoked'}
+          </span>
+        </div>
+        
+        <div className="approval-body">
+          {/* ── APPROVED STATE ── */}
+          {status === 'approved' && (
+            <>
+              <div className="approval-message success">
+                ✅ This module has been approved.
+              </div>
+              
+              {remarks && (
+                <div className="remarks-display">
+                  <strong>Remarks:</strong>
+                  <p>{remarks}</p>
+                </div>
+              )}
+              
+              <div className="remarks-section">
+                <label htmlFor="remarks">Remarks (required to revoke approval)</label>
+                <textarea
+                  id="remarks"
+                  value={remarks}
+                  onChange={(e) => {
+                    setRemarks(e.target.value)
+                    if (showRemarkError) setShowRemarkError(false)
+                  }}
+                  placeholder="Explain why you're revoking approval..."
+                  className={`${showRemarkError ? 'error' : ''}`}
+                />
+                {showRemarkError && (
+                  <div className="error-message">⚠️ Remarks are required to revoke approval.</div>
+                )}
+              </div>
+              
+              <div className="approval-actions">
+                <button
+                  className="btn btn-danger"
+                  onClick={handleRevoke}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Processing...' : '❌ Revoke Approval'}
+                </button>
+              </div>
+            </>
+          )}
+          
+          {/* ── PENDING STATE ── */}
+          {status === 'pending' && (
+            <>
+              <div className="approval-message info">
+                ⏳ Student has submitted this module for review.
+              </div>
+              
+              <div className="remarks-section">
+                <label htmlFor="remarks">Remarks (optional for approve, required for revoke)</label>
+                <textarea
+                  id="remarks"
+                  value={remarks}
+                  onChange={(e) => {
+                    setRemarks(e.target.value)
+                    if (showRemarkError) setShowRemarkError(false)
+                  }}
+                  placeholder="Add feedback for the student..."
+                  className={`${showRemarkError ? 'error' : ''}`}
+                />
+                {showRemarkError && (
+                  <div className="error-message">⚠️ Remarks are required when revoking a module.</div>
+                )}
+              </div>
+              
+              <div className="approval-actions">
+                <button
+                  className="btn btn-success"
+                  onClick={handleApprove}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Processing...' : '✅ Approve'}
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={handleRevoke}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Processing...' : '❌ Revoke'}
+                </button>
+              </div>
+            </>
+          )}
+          
+          {/* ── REVOKED STATE ── */}
+          {status === 'revoked' && (
+            <>
+              <div className="approval-message warning">
+                ❌ This module was revoked. Student can revise and resubmit.
+              </div>
+              
+              {remarks && (
+                <div className="remarks-display">
+                  <strong>Feedback:</strong>
+                  <p>{remarks}</p>
+                </div>
+              )}
+              
+              <div className="remarks-section">
+                <label htmlFor="remarks">Remarks (optional for approve, required for revoke)</label>
+                <textarea
+                  id="remarks"
+                  value={remarks}
+                  onChange={(e) => {
+                    setRemarks(e.target.value)
+                    if (showRemarkError) setShowRemarkError(false)
+                  }}
+                  placeholder="Add feedback for the student..."
+                  className={`${showRemarkError ? 'error' : ''}`}
+                />
+                {showRemarkError && (
+                  <div className="error-message">⚠️ Remarks are required when revoking a module.</div>
+                )}
+              </div>
+              
+              <div className="approval-actions">
+                <button
+                  className="btn btn-success"
+                  onClick={handleApprove}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Processing...' : '✅ Approve'}
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={handleRevoke}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Processing...' : '❌ Revoke'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )
   }
 
   if (loading) {
@@ -283,7 +555,6 @@ export default function WatchSession() {
   }
 
   const totalModules = modules.length
-  const completedModules = Object.values(moduleProgress).filter(p => p === 100).length
 
   return (
     <div>
@@ -354,10 +625,14 @@ export default function WatchSession() {
                   currentModule={currentModule}
                   onModuleChange={handleModuleChange}
                   moduleProgress={moduleProgress}
+                  moduleStatus={moduleStatus}
                 />
               </div>
 
               <div className="document-content">
+                {/* Approval Panel */}
+                {renderApprovalPanel()}
+                
                 <div className="module-title-bar">
                   <h2>{modules.find(m => m.moduleNumber === currentModule)?.title || `Module ${currentModule}`}</h2>
                   <div className="module-progress-badge">

@@ -27,8 +27,11 @@ export default function SessionPage() {
   const [answers, setAnswers] = useState({})
   const [moduleAnswers, setModuleAnswers] = useState({})
   const [moduleProgress, setModuleProgress] = useState({})
+  const [moduleStatus, setModuleStatus] = useState({})
   const [processing, setProcessing] = useState(false)
   const [loadingModule, setLoadingModule] = useState(false)
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   const saveTimeoutRef = useRef(null)
   const documentContainerRef = useRef(null)
@@ -98,6 +101,7 @@ export default function SessionPage() {
         setSession(sessionData)
         setAnswers(sessionData.answers || {})
         setModuleProgress(sessionData.moduleProgress || {})
+        setModuleStatus(sessionData.moduleStatus || {})
         setCurrentModule(sessionData.currentModule || 1)
 
         const workbookRef = doc(db, 'workbooks', sessionData.workbookId)
@@ -217,7 +221,23 @@ export default function SessionPage() {
     }
   }
 
-  // ── Handle module change ──
+  // ── Check if module can be edited ──
+  const canEditModule = (moduleNum) => {
+    const status = moduleStatus[moduleNum]?.status || 'not_started'
+    return status === 'not_started' || status === 'revoked'
+  }
+
+  // ── Check if module is approved ──
+  const isModuleApproved = (moduleNum) => {
+    return moduleStatus[moduleNum]?.status === 'approved'
+  }
+
+  // ── Check if module is pending ──
+  const isModulePending = (moduleNum) => {
+    return moduleStatus[moduleNum]?.status === 'pending'
+  }
+
+  // ── Handle module change with approval check ──
   const handleModuleChange = async (moduleNumber) => {
     if (moduleNumber === null || moduleNumber === undefined) {
       console.error('❌ Invalid module number:', moduleNumber)
@@ -225,6 +245,14 @@ export default function SessionPage() {
     }
     
     if (moduleNumber === currentModule) return
+    
+    // Check if current module is approved before allowing navigation
+    const currentModuleStatus = moduleStatus[currentModule]?.status
+    if (currentModuleStatus !== 'approved' && currentModuleStatus !== 'not_started') {
+      setError('⚠️ You must wait for the lecturer to approve this module before proceeding.')
+      setTimeout(() => setError(''), 5000)
+      return
+    }
     
     console.log('🔄 Switching to module:', moduleNumber)
     
@@ -264,6 +292,9 @@ export default function SessionPage() {
   }
 
   const handleFieldChange = (fieldId, value) => {
+    // Don't allow editing if module is not editable
+    if (!canEditModule(currentModule)) return
+    
     const moduleKey = `module_${currentModule}`
     const currentModuleAns = answers[moduleKey] || {}
     const newModuleAns = { ...currentModuleAns, [fieldId]: value }
@@ -313,6 +344,50 @@ export default function SessionPage() {
     }
   }
 
+  // ── SUBMIT MODULE ──
+  const handleSubmitModule = async () => {
+    setSubmitting(true)
+    try {
+      const sessionRef = doc(db, 'WBsessions', sessionId)
+      
+      // Get current module status
+      const currentStatus = moduleStatus[currentModule]?.status || 'not_started'
+      
+      // Update module status to pending
+      await updateDoc(sessionRef, {
+        [`moduleStatus.${currentModule}`]: {
+          status: 'pending',
+          remarks: '',
+          submittedAt: new Date(),
+          reviewedAt: null,
+          reviewedBy: null
+        },
+        lastActive: new Date()
+      })
+      
+      // Update local state
+      setModuleStatus(prev => ({
+        ...prev,
+        [currentModule]: {
+          status: 'pending',
+          remarks: '',
+          submittedAt: new Date(),
+          reviewedAt: null,
+          reviewedBy: null
+        }
+      }))
+      
+      setShowSubmitDialog(false)
+      
+    } catch (err) {
+      console.error('Error submitting module:', err)
+      setError('Failed to submit module. Please try again.')
+      setTimeout(() => setError(''), 5000)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   // Real-time listener for session updates
   useEffect(() => {
     if (!sessionId) return
@@ -322,6 +397,7 @@ export default function SessionPage() {
         const data = snap.data()
         setAnswers(data.answers || {})
         setModuleProgress(data.moduleProgress || {})
+        setModuleStatus(data.moduleStatus || {})
         setLastSaved(new Date())
       }
     })
@@ -343,9 +419,116 @@ export default function SessionPage() {
     const moduleAns = answers[moduleKey] || {}
     loadSavedAnswers(container, moduleAns)
     
+    // Lock or unlock based on status
+    const canEdit = canEditModule(currentModule)
+    lockOrUnlockDocument(container, canEdit)
+    
     container.scrollTop = 0
     
-  }, [currentModuleContent, currentModule, loadingModule])
+  }, [currentModuleContent, currentModule, loadingModule, moduleStatus])
+
+  // ── Lock or unlock document ──
+  const lockOrUnlockDocument = (container, canEdit) => {
+    if (!container) return
+    
+    container.querySelectorAll('[contenteditable]').forEach(el => {
+      if (canEdit) {
+        el.setAttribute('contenteditable', 'true')
+        el.style.pointerEvents = 'auto'
+        el.style.cursor = 'text'
+        el.style.opacity = '1'
+      } else {
+        el.setAttribute('contenteditable', 'false')
+        el.style.pointerEvents = 'none'
+        el.style.cursor = 'default'
+        el.style.opacity = '0.85'
+      }
+    })
+    
+    container.querySelectorAll('.fillable-checkbox, .fillable-radio').forEach(el => {
+      if (canEdit) {
+        el.style.pointerEvents = 'auto'
+        el.style.cursor = 'pointer'
+        el.style.opacity = '1'
+      } else {
+        el.style.pointerEvents = 'none'
+        el.style.cursor = 'default'
+        el.style.opacity = '0.85'
+      }
+    })
+  }
+
+  // ── Render module status badge ──
+  const renderStatusBadge = () => {
+    const status = moduleStatus[currentModule]?.status || 'not_started'
+    const remarks = moduleStatus[currentModule]?.remarks || ''
+    
+    switch(status) {
+      case 'approved':
+        return (
+          <div className="status-badge approved">
+            ✅ Approved
+            {remarks && <span className="remarks-text"> - {remarks}</span>}
+          </div>
+        )
+      case 'pending':
+        return (
+          <div className="status-badge pending">
+            ⏳ Pending Approval
+            <span className="status-sub">Waiting for lecturer...</span>
+          </div>
+        )
+      case 'revoked':
+        return (
+          <div className="status-badge revoked">
+            ❌ Revoked
+            {remarks && <span className="remarks-text"> - {remarks}</span>}
+            <span className="status-sub">Please revise and resubmit</span>
+          </div>
+        )
+      default:
+        return null
+    }
+  }
+
+  // ── Render submit button ──
+  const renderSubmitButton = () => {
+    const status = moduleStatus[currentModule]?.status || 'not_started'
+    
+    // Don't show for approved modules
+    if (status === 'approved') return null
+    
+    // Show pending status
+    if (status === 'pending') {
+      return (
+        <div className="submit-section disabled">
+          <div className="submit-info">
+            <span className="submit-icon">⏳</span>
+            <span>Module submitted — waiting for lecturer approval</span>
+          </div>
+        </div>
+      )
+    }
+    
+    // Show submit button for not_started or revoked
+    if (status === 'not_started' || status === 'revoked') {
+      return (
+        <div className="submit-section">
+          <button 
+            className="btn btn-primary btn-submit"
+            onClick={() => setShowSubmitDialog(true)}
+          >
+            📤 Submit Module for Review
+          </button>
+          <div className="submit-hint">
+            Once submitted, you cannot edit until approved or revoked
+          </div>
+        </div>
+      )
+    }
+    
+    return null
+  }
 
   const handleDownload = async () => {
     if (!session || !workbook) return
@@ -480,14 +663,26 @@ export default function SessionPage() {
     )
   }
 
+  // ── REPLACE THE ERROR STATE DISPLAY ──
   if (error) {
     return (
       <div>
         <Navbar />
         <div className="session-page">
           <div className="container">
-            <div className="error-msg">{error}</div>
-            <button onClick={() => navigate('/student')} className="btn btn-primary">Back</button>
+            <div className="error-container">
+              <div className="error-modal">
+                <button 
+                  className="error-close-btn"
+                  onClick={() => setError('')}  // ← Just clear error, stay on session
+                >
+                  ✕
+                </button>
+                <div className="error-icon">⚠️</div>
+                <h2>Cannot Proceed</h2>
+                <p>{error}</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -496,11 +691,46 @@ export default function SessionPage() {
 
   const totalModules = modules.length
   const completedModules = Object.values(moduleProgress).filter(p => p === 100).length
+  const approvedModules = Object.values(moduleStatus).filter(s => s.status === 'approved').length
+  const currentStatus = moduleStatus[currentModule]?.status || 'not_started'
 
   return (
     <div>
       <Navbar />
       <div className="session-page">
+        {/* ── SUBMIT CONFIRMATION DIALOG ── */}
+        {showSubmitDialog && (
+          <div className="modal-overlay" onClick={() => setShowSubmitDialog(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>📤 Submit Module {currentModule}?</h3>
+              </div>
+              <div className="modal-body">
+                <p><strong>Once submitted you can't edit until approved or revoked.</strong></p>
+                <p style={{ marginTop: '8px', color: '#666' }}>
+                  The lecturer will review your answers and provide feedback.
+                </p>
+                <div className="modal-actions">
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => setShowSubmitDialog(false)}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handleSubmitModule}
+                    disabled={submitting}
+                  >
+                    {submitting ? 'Submitting...' : 'Yes, Submit'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── HEADER ── */}
         <div className="session-header">
           <div className="container">
@@ -510,7 +740,7 @@ export default function SessionPage() {
                 <p className="session-subtitle">
                   Lecturer: {session?.lecturerName} • 
                   Module {currentModule} of {totalModules} • 
-                  {completedModules}/{totalModules} completed
+                  {approvedModules}/{totalModules} approved
                 </p>
               </div>
               <div className="header-actions">
@@ -539,6 +769,7 @@ export default function SessionPage() {
                   currentModule={currentModule}
                   onModuleChange={handleModuleChange}
                   moduleProgress={moduleProgress}
+                  moduleStatus={moduleStatus}
                 />
               </div>
 
@@ -546,6 +777,9 @@ export default function SessionPage() {
                 <div className="document-instructions">
                   <p>💡 <strong>How to fill:</strong> Click on any blank (_____), checkbox (□), or radio (○) to fill. Everything saves automatically.</p>
                 </div>
+                
+                {/* ── STATUS BADGE ── */}
+                {renderStatusBadge()}
                 
                 <div className="module-title-bar">
                   <div className="module-title-left">
@@ -578,7 +812,10 @@ export default function SessionPage() {
                           const nextModuleNum = currentModule + 1
                           if (nextModuleNum <= modules.length) handleModuleChange(nextModuleNum)
                         }}
-                        disabled={currentModule === modules.length}
+                        disabled={
+                          currentModule === modules.length || 
+                          (currentStatus !== 'approved' && currentStatus !== 'not_started')
+                        }
                       >
                         Next →
                       </button>
@@ -586,7 +823,7 @@ export default function SessionPage() {
                   </div>
                 </div>
                 
-                <div className="document-viewer card" ref={documentContainerRef}>
+                <div className={`document-viewer card ${!canEditModule(currentModule) ? 'locked' : ''}`} ref={documentContainerRef}>
                   {loadingModule ? (
                     <div className="loading-document"><span className="spinner"></span> Loading module...</div>
                   ) : processing ? (
@@ -597,6 +834,9 @@ export default function SessionPage() {
                     <div className="empty-document">No content available for this module</div>
                   )}
                 </div>
+                
+                {/* ── SUBMIT SECTION ── */}
+                {renderSubmitButton()}
                 
                 <div className="module-nav-buttons-bottom">
                   <button
@@ -615,7 +855,10 @@ export default function SessionPage() {
                       const nextModuleNum = currentModule + 1
                       if (nextModuleNum <= modules.length) handleModuleChange(nextModuleNum)
                     }}
-                    disabled={currentModule === modules.length}
+                    disabled={
+                      currentModule === modules.length || 
+                      (currentStatus !== 'approved' && currentStatus !== 'not_started')
+                    }
                   >
                     Next Module →
                   </button>

@@ -558,3 +558,106 @@
     font-size: 0.65rem;
   }
 }
+
+/* ── SUBMISSIONS INSIDE WORKBOOK CARDS ── */
+.wb-submissions {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.wb-submissions.pending {
+  background: #fffdf0;
+  border-left: 3px solid #ffc107;
+}
+
+.wb-submissions.approved {
+  background: #f0faf4;
+  border-left: 3px solid #28a745;
+}
+
+.wb-submissions.empty {
+  background: var(--paper-2);
+  border-left: 3px solid var(--paper-3);
+}
+
+.submissions-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 6px;
+}
+
+.submissions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.submission-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.8rem;
+}
+
+.submission-item .student-name {
+  font-weight: 500;
+  color: var(--ink);
+  flex: 1;
+}
+
+.submission-item .module-tag {
+  padding: 1px 8px;
+  background: white;
+  border-radius: 100px;
+  font-size: 0.65rem;
+  color: var(--ink-soft);
+  border: 1px solid var(--paper-3);
+}
+
+.submission-item .btn-sm {
+  padding: 2px 10px;
+  font-size: 0.7rem;
+}
+
+.submission-more {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  padding: 2px 0;
+}
+
+.pending-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  background: #fff3cd;
+  color: #856404;
+  border-radius: 100px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  animation: pulse-pending 2s infinite;
+}
+
+@keyframes pulse-pending {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ── RESPONSIVE UPDATES ── */
+@media (max-width: 768px) {
+  .submission-item {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  
+  .submission-item .student-name {
+    flex: 1 1 100%;
+  }
+  
+  .submission-item .btn-sm {
+    margin-left: auto;
+  }
+}
