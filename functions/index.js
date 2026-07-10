@@ -10,7 +10,7 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 const db = admin.firestore();
 
-setGlobalOptions({ maxInstances: 10 });
+setGlobalOptions({ maxInstances: 10 }); 
 
 // ============================================================
 // SECRETS — pulled from functions/.env in development,

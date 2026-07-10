@@ -49,12 +49,18 @@ export default function LandingPage() {
                 ? 'Pick up right where you left off.'
                 : 'Sign in to continue, or request access to get started.'}
             </p>
-            <div className="hero-cta" style={{ marginTop: '32px', justifyContent: 'center' }}>
+            <div className="hero-cta hero-cta-responsive">
               {user ? (
-                <Link to={dashboardPath} className="btn btn-primary btn-lg">
-                  <i className="ti ti-arrow-right" aria-hidden="true"></i>
-                  Go to dashboard
-                </Link>
+                <>
+                  <Link to={dashboardPath} className="btn btn-primary btn-lg">
+                    <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                    Go to dashboard
+                  </Link>
+                  <Link to="/store" className="btn btn-secondary btn-lg">
+                    <i className="ti ti-book" aria-hidden="true"></i>
+                    Browse Workbooks
+                  </Link>
+                </>
               ) : (
                 <>
                   <Link to="/login" className="btn btn-secondary btn-lg">
@@ -63,6 +69,10 @@ export default function LandingPage() {
                   <Link to="/register" className="btn btn-primary btn-lg">
                     <i className="ti ti-arrow-right" aria-hidden="true"></i>
                     Register
+                  </Link>
+                  <Link to="/store" className="btn btn-secondary btn-lg">
+                    <i className="ti ti-book" aria-hidden="true"></i>
+                    Browse Workbooks
                   </Link>
                 </>
               )}
@@ -102,21 +112,30 @@ export default function LandingPage() {
             monitor student progress in real time, and maintain full academic oversight 
             from a single, secure platform.
           </p>
-          <div className="hero-cta">
+          <div className="hero-cta hero-cta-responsive">
             {user ? (
-              <Link to={dashboardPath} className="btn btn-primary btn-lg">
-                <i className="ti ti-arrow-right" aria-hidden="true"></i>
-                Go to dashboard
-              </Link>
+              <>
+                <Link to={dashboardPath} className="btn btn-primary btn-lg">
+                  <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                  Go to dashboard
+                </Link>
+                <Link to="/store" className="btn btn-secondary btn-lg">
+                  <i className="ti ti-book" aria-hidden="true"></i>
+                  Browse Workbooks
+                </Link>
+              </>
             ) : (
-              <Link to="/register" className="btn btn-primary btn-lg">
-                <i className="ti ti-arrow-right" aria-hidden="true"></i>
-                Request access
-              </Link>
+              <>
+                <Link to="/register" className="btn btn-primary btn-lg">
+                  <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                  Request access
+                </Link>
+                <Link to="/store" className="btn btn-secondary btn-lg">
+                  <i className="ti ti-book" aria-hidden="true"></i>
+                  Browse Workbooks
+                </Link>
+              </>
             )}
-            <Link to="/store" className="btn btn-secondary btn-lg">
-              Browse catalogue
-            </Link>
           </div>
         </div>
       </section>

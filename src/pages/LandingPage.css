@@ -358,3 +358,29 @@
   .how-section { padding: 32px 16px; }
   .landing-stat-item { padding: 16px 20px; }
 }
+
+/* Responsive CTA buttons */
+.hero-cta-responsive {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+}
+
+/* Stack buttons vertically on screens 600px and below */
+@media (max-width: 600px) {
+  .hero-cta-responsive {
+    flex-direction: column;
+    width: 100%;
+    max-width: 300px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .hero-cta-responsive .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
