@@ -63,13 +63,15 @@ export default function LandingPage() {
                 </>
               ) : (
                 <>
-                  <Link to="/login" className="btn btn-secondary btn-lg">
-                    Login
-                  </Link>
-                  <Link to="/register" className="btn btn-primary btn-lg">
-                    <i className="ti ti-arrow-right" aria-hidden="true"></i>
-                    Register
-                  </Link>
+                  <div className="auth-buttons-wrapper">
+                    <Link to="/login" className="btn btn-primary btn-lg">
+                      <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                      Login
+                    </Link>
+                    <p className="auth-switch-text">
+                      Don't have an account? <Link to="/register" className="auth-link">Register</Link>
+                    </p>
+                  </div>
                   <Link to="/store" className="btn btn-secondary btn-lg">
                     <i className="ti ti-book" aria-hidden="true"></i>
                     Browse Workbooks
@@ -126,10 +128,15 @@ export default function LandingPage() {
               </>
             ) : (
               <>
-                <Link to="/register" className="btn btn-primary btn-lg">
-                  <i className="ti ti-arrow-right" aria-hidden="true"></i>
-                  Request access
-                </Link>
+                <div className="auth-buttons-wrapper">
+                  <Link to="/login" className="btn btn-primary btn-lg">
+                    <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                    Login
+                  </Link>
+                  <p className="auth-switch-text">
+                    Don't have an account? <Link to="/register" className="auth-link">Register</Link>
+                  </p>
+                </div>
                 <Link to="/store" className="btn btn-secondary btn-lg">
                   <i className="ti ti-book" aria-hidden="true"></i>
                   Browse Workbooks
