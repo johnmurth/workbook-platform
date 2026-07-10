@@ -42,7 +42,7 @@ export default function Navbar() {
           {user && profile?.role === 'lecturer' && (
             <>
               <Link to="/lecturer" className="nav-link">Dashboard</Link>
-              <Link to="/lecturer/payments" className="nav-link">Payments</Link>
+              {/*<Link to="/lecturer/payments" className="nav-link">Payments</Link>*/}
               <button onClick={handleLogout} className="nav-link">Log out</button>
             </>
           )}

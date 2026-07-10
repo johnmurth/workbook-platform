@@ -1,7 +1,18 @@
 // src/pages/LecturerDashboard.jsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, query, where, onSnapshot, orderBy, getDocs, doc } from 'firebase/firestore'
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  orderBy,
+  getDocs,
+  doc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp
+} from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
 import Navbar from '../components/shared/Navbar'
@@ -13,19 +24,28 @@ export default function LecturerDashboard() {
   const [workbooks, setWorkbooks] = useState([])
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
-  const [moduleStats, setModuleStats] = useState({})
+  const [selectedWorkbookId, setSelectedWorkbookId] = useState(null)
   const [pendingApprovals, setPendingApprovals] = useState(0)
   const [now, setNow] = useState(Date.now())
+  const [moduleFields, setModuleFields] = useState({})
+
+  // ── Workbook management modal state ──
+  const [showWorkbooksModal, setShowWorkbooksModal] = useState(false)
+  const [confirmPermanentDeleteId, setConfirmPermanentDeleteId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
+
+  const tabsContainerRef = useRef(null)
 
   // ── Force re-render every 2 seconds to check active status ──
   useEffect(() => {
     const interval = setInterval(() => {
       setNow(Date.now())
     }, 2000)
-    
+
     return () => clearInterval(interval)
   }, [])
 
+  // ── Fetch workbooks ──
   useEffect(() => {
     if (!user) return
     const q = query(
@@ -36,30 +56,39 @@ export default function LecturerDashboard() {
     const unsub = onSnapshot(q, async snap => {
       const wbList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       setWorkbooks(wbList)
-      
-      for (const wb of wbList) {
-        await fetchModuleStats(wb.id)
+
+      // Auto-select first ACTIVE (non-deleted) workbook if none selected
+      const activeList = wbList.filter(wb => !wb.isDeleted)
+      if (activeList.length > 0 && !selectedWorkbookId) {
+        setSelectedWorkbookId(activeList[0].id)
       }
-      
+
+      // Fetch module fields for each workbook
+      for (const wb of wbList) {
+        await fetchModuleFields(wb.id)
+      }
+
       setLoading(false)
     })
     return unsub
   }, [user])
 
+  // ── Fetch sessions ──
   useEffect(() => {
     if (!user) return
-    
+
     const q = query(
       collection(db, 'WBsessions'),
       where('lecturerUid', '==', user.uid),
       orderBy('createdAt', 'desc')
     )
-    
+
     const unsub = onSnapshot(q, snap => {
       const sessionsList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       setSessions(sessionsList)
-      
-      // Count pending approvals      let pendingCount = 0
+
+      // Count pending approvals
+      let pendingCount = 0
       sessionsList.forEach(session => {
         if (session.moduleStatus) {
           Object.values(session.moduleStatus).forEach(status => {
@@ -69,33 +98,35 @@ export default function LecturerDashboard() {
       })
       setPendingApprovals(pendingCount)
     })
-    
+
     return unsub
   }, [user])
 
-  const fetchModuleStats = async (workbookId) => {
+  // ── Fetch module fields for a workbook ──
+  const fetchModuleFields = async (workbookId) => {
     try {
-      const sessionsQuery = query(
-        collection(db, 'WBsessions'),
-        where('workbookId', '==', workbookId)
+      const modulesQuery = query(
+        collection(db, 'workbooks', workbookId, 'WBmodules'),
+        orderBy('moduleNumber')
       )
-      const sessionsSnap = await getDocs(sessionsQuery)
-      const sessionsList = sessionsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-      
-      const stats = {}
-      sessionsList.forEach(session => {
-        if (session.moduleProgress) {
-          Object.entries(session.moduleProgress).forEach(([moduleNum, progress]) => {
-            if (!stats[moduleNum]) stats[moduleNum] = { total: 0, completed: 0 }
-            stats[moduleNum].total++
-            if (progress === 100) stats[moduleNum].completed++
-          })
+      const modulesSnap = await getDocs(modulesQuery)
+
+      const moduleMap = {}
+      modulesSnap.docs.forEach(doc => {
+        const data = doc.data()
+        // Skip cover pages
+        if (!data.isCover) {
+          moduleMap[data.moduleNumber] = {
+            title: data.title || `Module ${data.moduleNumber}`,
+            fieldIds: data.fieldIds || [],
+            isCover: data.isCover || false
+          }
         }
       })
-      
-      setModuleStats(prev => ({ ...prev, [workbookId]: stats }))
+
+      setModuleFields(prev => ({ ...prev, [workbookId]: moduleMap }))
     } catch (err) {
-      console.error('Error fetching module stats:', err)
+      console.error('Error fetching module fields:', err)
     }
   }
 
@@ -117,77 +148,155 @@ export default function LecturerDashboard() {
     return lastActiveTime.toLocaleTimeString()
   }
 
-  // ── Get pending submissions for a workbook ──
-  const getPendingSubmissions = (workbookId) => {
-    const pending = []
-    sessions.forEach(session => {
-      if (session.workbookId === workbookId && session.moduleStatus) {
-        Object.entries(session.moduleStatus).forEach(([moduleNum, status]) => {
-          if (status.status === 'pending') {
-            pending.push({
-              sessionId: session.id,
-              studentName: session.studentName || 'Unknown',
-              moduleNumber: parseInt(moduleNum),
-              submittedAt: status.submittedAt,
-              session: session
-            })
-          }
+  // ── Get students for a workbook with their module statuses ──
+  const getWorkbookStudents = (workbookId) => {
+    const workbookSessions = sessions.filter(s => s.workbookId === workbookId)
+    const moduleNumbers = Object.keys(moduleFields[workbookId] || {}).map(Number).sort((a, b) => a - b)
+    const totalModules = moduleNumbers.length || 1
+
+    return workbookSessions.map(session => {
+      const statuses = session.moduleStatus || {}
+      const moduleProgress = session.moduleProgress || {}
+
+      let approved = 0
+      let revoked = 0
+      let pending = 0
+      let completed = 0
+
+      moduleNumbers.forEach(moduleNum => {
+        const status = statuses[moduleNum]?.status || 'not_started'
+        const progress = moduleProgress[moduleNum] || 0
+
+        if (status === 'approved') approved++
+        if (status === 'revoked') revoked++
+        if (status === 'pending') pending++
+        if (progress === 100) completed++
+      })
+
+      return {
+        sessionId: session.id,
+        studentName: session.studentName || 'Unknown Student',
+        studentUid: session.studentUid,
+        totalModules,
+        approved,
+        revoked,
+        pending,
+        completed,
+        isComplete: completed === totalModules && totalModules > 0,
+        lastActive: session.lastActive,
+        isActive: isSessionActive(session),
+        downloadCount: session.downloadCount || 0,
+        downloadLimit: session.downloadLimit || 3,
+        createdAt: session.createdAt
+      }
+    })
+  }
+
+  // ── Get pending count for a workbook ──
+  const getPendingCount = (workbookId) => {
+    const workbookSessions = sessions.filter(s => s.workbookId === workbookId)
+    let count = 0
+    workbookSessions.forEach(session => {
+      if (session.moduleStatus) {
+        Object.values(session.moduleStatus).forEach(status => {
+          if (status.status === 'pending') count++
         })
       }
     })
-    return pending.sort((a, b) => {
-      if (a.submittedAt && b.submittedAt) {
-        return new Date(a.submittedAt) - new Date(b.submittedAt)
+    return count
+  }
+
+  // ── Get active session count for a workbook ──
+  const getActiveCount = (workbookId) => {
+    const workbookSessions = sessions.filter(s => s.workbookId === workbookId)
+    return workbookSessions.filter(s => isSessionActive(s)).length
+  }
+
+  // ── Handle tab click ──
+  const handleTabClick = (workbookId) => {
+    setSelectedWorkbookId(workbookId)
+    // Scroll to top of content
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // ── Scroll tabs horizontally ──
+  const scrollTabs = (direction) => {
+    if (tabsContainerRef.current) {
+      const scrollAmount = 200
+      const newScrollLeft = tabsContainerRef.current.scrollLeft + (direction === 'left' ? -scrollAmount : scrollAmount)
+      tabsContainerRef.current.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+    }
+  }
+
+  // ── Soft delete: hide from students, keep for lecturer with Undo ──
+  const handleDeleteWorkbook = async (workbookId) => {
+    try {
+      const wbRef = doc(db, 'workbooks', workbookId)
+      await updateDoc(wbRef, {
+        isDeleted: true,
+        deletedAt: serverTimestamp()
+      })
+      // If the deleted workbook was selected, fall back to the next active one
+      if (selectedWorkbookId === workbookId) {
+        const next = workbooks.find(wb => wb.id !== workbookId && !wb.isDeleted)
+        setSelectedWorkbookId(next ? next.id : null)
       }
-      return 0
-    })
+    } catch (err) {
+      console.error('Error deleting workbook:', err)
+    }
   }
 
-  // ── Get approved submissions for a workbook ──
-  const getApprovedSubmissions = (workbookId) => {
-    const approved = []
-    sessions.forEach(session => {
-      if (session.workbookId === workbookId && session.moduleStatus) {
-        Object.entries(session.moduleStatus).forEach(([moduleNum, status]) => {
-          if (status.status === 'approved') {
-            approved.push({
-              sessionId: session.id,
-              studentName: session.studentName || 'Unknown',
-              moduleNumber: parseInt(moduleNum),
-              reviewedAt: status.reviewedAt,
-              remarks: status.remarks,
-              session: session
-            })
-          }
-        })
+  // ── Undo soft delete ──
+  const handleUndoDelete = async (workbookId) => {
+    try {
+      const wbRef = doc(db, 'workbooks', workbookId)
+      await updateDoc(wbRef, {
+        isDeleted: false,
+        deletedAt: null
+      })
+    } catch (err) {
+      console.error('Error restoring workbook:', err)
+    }
+  }
+
+  // ── Permanently delete: removes workbook + its modules subcollection from Firestore ──
+  const handlePermanentDelete = async (workbookId) => {
+    setDeletingId(workbookId)
+    try {
+      // Delete WBmodules subcollection docs first (Firestore doesn't cascade delete)
+      const modulesSnap = await getDocs(collection(db, 'workbooks', workbookId, 'WBmodules'))
+      await Promise.all(modulesSnap.docs.map(d => deleteDoc(d.ref)))
+
+      // Delete the workbook doc itself
+      await deleteDoc(doc(db, 'workbooks', workbookId))
+
+      // Clean up local state
+      setModuleFields(prev => {
+        const next = { ...prev }
+        delete next[workbookId]
+        return next
+      })
+      if (selectedWorkbookId === workbookId) {
+        const next = workbooks.find(wb => wb.id !== workbookId && !wb.isDeleted)
+        setSelectedWorkbookId(next ? next.id : null)
       }
-    })
-    return approved.sort((a, b) => {
-      if (a.reviewedAt && b.reviewedAt) {
-        return new Date(b.reviewedAt) - new Date(a.reviewedAt)
-      }
-      return 0
-    })
+      setConfirmPermanentDeleteId(null)
+    } catch (err) {
+      console.error('Error permanently deleting workbook:', err)
+    } finally {
+      setDeletingId(null)
+    }
   }
 
-  const getModuleCount = (workbook) => {
-    return workbook.totalModules || 1
-  }
+  // ── Derived: workbooks visible in normal dashboard view (excludes soft-deleted) ──
+  const activeWorkbooks = workbooks.filter(wb => !wb.isDeleted)
 
-  const getModuleStatsDisplay = (workbookId) => {
-    const stats = moduleStats[workbookId] || {}
-    const entries = Object.entries(stats)
-    if (entries.length === 0) return 'No submissions yet'
-    
-    return entries.map(([moduleNum, data]) => (
-      <span key={moduleNum} className="module-stat-tag">
-        M{moduleNum}: {data.completed}/{data.total}
-      </span>
-    ))
-  }
-
-  // ── Recalculate active sessions ──
-  const activeSessions = sessions.filter(s => isSessionActive(s))
+  // ── Get selected workbook ──
+  const selectedWorkbook = activeWorkbooks.find(wb => wb.id === selectedWorkbookId)
+  const selectedStudents = selectedWorkbookId ? getWorkbookStudents(selectedWorkbookId) : []
+  const totalModules = selectedWorkbookId ?
+    Object.keys(moduleFields[selectedWorkbookId] || {}).length :
+    0
 
   return (
     <div>
@@ -206,15 +315,20 @@ export default function LecturerDashboard() {
 
         {/* Stats */}
         <div className="stats-row">
-          <div className="stat-card card">
-            <div className="stat-num">{workbooks.length}</div>
+          <div
+            className="stat-card card clickable"
+            onClick={() => setShowWorkbooksModal(true)}
+            style={{ cursor: 'pointer' }}
+            title="Click to manage workbooks"
+          >
+            <div className="stat-num">{activeWorkbooks.length}</div>
             <div className="stat-label">Workbooks</div>
           </div>
-          <div className="stat-card card"  style={{display: 'none'}}>
+          <div className="stat-card card">
             <div className="stat-num">{sessions.length}</div>
-            <div className="stat-label">Total Sessions</div>
+            <div className="stat-label">Total Students</div>
           </div>
-          <div className="stat-card card"  style={{display: 'none'}}>
+          <div className="stat-card card">
             <div className="stat-num" style={{color: pendingApprovals > 0 ? '#ffc107' : 'var(--ink-muted)'}}>
               {pendingApprovals}
             </div>
@@ -227,49 +341,136 @@ export default function LecturerDashboard() {
           </div>
         </div>
 
-        {/* Active Sessions */}
-        {activeSessions.length > 0 ? (
-          <section className="dash-section"  style={{display: 'none'}}>
-            <h2 className="section-title">
-              <span className="live-dot" /> Live Sessions
-            </h2>
-            <div className="sessions-grid">
-              {activeSessions.map(s => (
-                <div key={s.id} className="session-card card">
-                  <div className="session-info">
-                    <div className="session-student">{s.studentName || 'Student'}</div>
-                    <div className="session-wb">{s.workbookTitle}</div>
-                    <div className="session-module">
-                      Module {s.currentModule || 1} of {s.totalModules || 1}
-                    </div>
-                    <div className="session-last-active" style={{fontSize: '11px', color: '#22c55e'}}>
-                      🟢 {getLastActiveString(s)}
-                    </div>
-                  </div>
-                  <Link to={`/lecturer/watch/${s.id}`} className="btn btn-primary btn-sm">
-                    👁 Watch Live
-                  </Link>
-                </div>
-              ))}
+        {/* ── WORKBOOK MANAGEMENT MODAL ── */}
+        {showWorkbooksModal && (
+          <div className="modal-overlay" onClick={() => setShowWorkbooksModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>📚 Manage Workbooks</h3>
+              </div>
+              <div className="modal-body">
+                {workbooks.length === 0 ? (
+                  <p>No workbooks yet.</p>
+                ) : (
+                  <ul className="workbook-manage-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                    {workbooks.map(wb => (
+                      <li
+                        key={wb.id}
+                        className="workbook-manage-item"
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '12px 0',
+                          borderBottom: '1px solid #eee',
+                          opacity: wb.isDeleted ? 0.6 : 1,
+                          gap: '12px'
+                        }}
+                      >
+                        <div>
+                          <div>{wb.title}</div>
+                          {wb.isDeleted && (
+                            <div style={{ fontSize: '0.8em', color: '#c0392b', marginTop: 2 }}>
+                              🗑️ Deleted — hidden from students
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                          {wb.isDeleted ? (
+                            <>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleUndoDelete(wb.id)}
+                                disabled={deletingId === wb.id}
+                              >
+                                ↩️ Undo
+                              </button>
+
+                              {confirmPermanentDeleteId === wb.id ? (
+                                <>
+                                  <span style={{ fontSize: '0.8em', color: '#c0392b' }}>Sure?</span>
+                                  <button
+                                    className="btn btn-danger btn-sm"
+                                    onClick={() => handlePermanentDelete(wb.id)}
+                                    disabled={deletingId === wb.id}
+                                  >
+                                    {deletingId === wb.id ? 'Deleting...' : 'Yes, delete forever'}
+                                  </button>
+                                  <button
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => setConfirmPermanentDeleteId(null)}
+                                    disabled={deletingId === wb.id}
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => setConfirmPermanentDeleteId(wb.id)}
+                                  disabled={deletingId === wb.id}
+                                >
+                                  🗑️ Delete Permanently
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => handleDeleteWorkbook(wb.id)}
+                            >
+                              🗑️ Delete
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="modal-actions" style={{ marginTop: 16 }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowWorkbooksModal(false)
+                    setConfirmPermanentDeleteId(null)
+                  }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
-          </section>
-        ) : (
-          <section className="dash-section">
-            <div className="empty-sessions card">
-              <div className="empty-icon" style={{fontSize: '2.5rem'}}>🟤</div>
-              <h3 style={{marginBottom: '4px'}}>No Active Sessions</h3>
-              <p style={{color: 'var(--ink-muted)'}}>
-                Students will appear here when they are actively working on a workbook.
-              </p>
-            </div>
-          </section>
+          </div>
         )}
 
-        {/* Workbooks with Pending Submissions */}
+        {/* ── WORKBOOK TABS ── */}
         <section className="dash-section">
-          <h2 className="section-title">📋 Workbooks & Submissions</h2>
+          <div className="tabs-header">
+            <h2 className="section-title">📚 Workbooks</h2>
+            {activeWorkbooks.length > 0 && (
+              <div className="tabs-actions">
+                <button
+                  className="tab-scroll-btn"
+                  onClick={() => scrollTabs('left')}
+                  aria-label="Scroll tabs left"
+                >
+                  ◀
+                </button>
+                <button
+                  className="tab-scroll-btn"
+                  onClick={() => scrollTabs('right')}
+                  aria-label="Scroll tabs right"
+                >
+                  ▶
+                </button>
+              </div>
+            )}
+          </div>
+
           {loading && <div className="page-loader"><span className="spinner" /></div>}
-          {!loading && workbooks.length === 0 && (
+
+          {!loading && activeWorkbooks.length === 0 && (
             <div className="empty-sessions card">
               <div className="empty-icon">📚</div>
               <h3>No workbooks yet</h3>
@@ -279,152 +480,136 @@ export default function LecturerDashboard() {
               </Link>
             </div>
           )}
-          <div className="workbooks-grid">
-            {workbooks.map(wb => {
-              const moduleCount = getModuleCount(wb)
-              const pendingSubmissions = getPendingSubmissions(wb.id)
-              const approvedSubmissions = getApprovedSubmissions(wb.id)
-              
-              return (
-                <div key={wb.id} className="workbook-card card">
-                  <div className="wb-type-badge">{getFileTypeLabel(wb.fileType)}</div>
-                  <h3 className="wb-title">{wb.title}</h3>
-                  <p className="wb-desc">{wb.description}</p>
-                  
-                  <div className="wb-module-info">
-                    <span className="module-count-badge">
-                      📚 {moduleCount} Module{moduleCount > 1 ? 's' : ''}
-                    </span>
-                    {pendingSubmissions.length > 0 && (
-                      <span className="pending-badge" style={{marginLeft: '8px', background: '#fff3cd', color: '#856404', padding: '2px 10px', borderRadius: '100px', fontSize: '0.7rem', fontWeight: '600'}}>
-                        ⏳ {pendingSubmissions.length} pending
-                      </span>
-                    )}
-                  </div>
 
-                  {/* Pending Submissions */}
-                  {pendingSubmissions.length > 0 && (
-                    <div className="wb-submissions pending">
-                      <div className="submissions-label">⏳ Pending Approval:</div>
-                      <div className="submissions-list">
-                        {pendingSubmissions.map((sub, idx) => (
-                          <div key={idx} className="submission-item">
-                            <span className="student-name">{sub.studentName}</span>
-                            <span className="module-tag">Module {sub.moduleNumber}</span>
-                            <Link to={`/lecturer/watch/${sub.sessionId}`} className="btn btn-sm btn-primary">
-                              View
-                            </Link>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+          {!loading && activeWorkbooks.length > 0 && (
+            <>
+              {/* Horizontal Scrollable Tabs */}
+              <div className="tabs-wrapper">
+                <div className="tabs-container" ref={tabsContainerRef}>
+                  {activeWorkbooks.map(wb => {
+                    const pendingCount = getPendingCount(wb.id)
+                    const activeCount = getActiveCount(wb.id)
+                    const isSelected = selectedWorkbookId === wb.id
 
-                  {/* Approved Submissions */}
-                  {approvedSubmissions.length > 0 && (
-                    <div className="wb-submissions approved">
-                      <div className="submissions-label">✅ Recently Approved:</div>
-                      <div className="submissions-list">
-                        {approvedSubmissions.slice(0, 3).map((sub, idx) => (
-                          <div key={idx} className="submission-item">
-                            <span className="student-name">{sub.studentName}</span>
-                            <span className="module-tag">Module {sub.moduleNumber}</span>
-                            <Link to={`/lecturer/watch/${sub.sessionId}`} className="btn btn-sm btn-ghost">
-                              View
-                            </Link>
-                          </div>
-                        ))}
-                        {approvedSubmissions.length > 3 && (
-                          <div className="submission-more">
-                            +{approvedSubmissions.length - 3} more approved
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {pendingSubmissions.length === 0 && approvedSubmissions.length === 0 && (
-                    <div className="wb-submissions empty">
-                      <div className="submissions-label" style={{color: 'var(--ink-muted)'}}>
-                        No submissions yet
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="wb-meta">
-                    <span className="wb-price">KES {wb.price?.toLocaleString()}</span>
-                    <span className="wb-limit">⬇️ {wb.downloadLimit} downloads max</span>
-                  </div>
-                  <div className="wb-actions">
-                    <Link to={`/lecturer/workbook/${wb.id}/edit`} className="btn btn-secondary btn-sm">
-                      ✏️ Edit Fields
-                    </Link>
-                    <span className="wb-sessions">
-                      {sessions.filter(s => s.workbookId === wb.id).length} sessions
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-
-        {/* All Sessions */}
-        {sessions.length > 0 && (
-          <section className="dash-section"  style={{display: 'none'}}>
-            <h2 className="section-title">All Student Sessions</h2>
-            <div className="all-sessions-table card">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>Workbook</th>
-                    <th>Status</th>
-                    <th>Modules</th>
-                    <th>Started</th>
-                    <th>Downloads</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sessions.map(s => {
-                    const completed = s.moduleProgress ? Object.values(s.moduleProgress).filter(p => p === 100).length : 0
-                    const total = s.totalModules || 1
-                    const sessionActive = isSessionActive(s)
-                    
                     return (
-                      <tr key={s.id}>
-                        <td>{s.studentName || '—'}</td>
-                        <td>{s.workbookTitle || '—'}</td>
-                        <td>
-                          <span className={`badge ${sessionActive ? 'badge-green' : 'badge-gray'}`}>
-                            {sessionActive ? `🟢 ${getLastActiveString(s)}` : `⚫ ${getLastActiveString(s)}`}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="module-progress-cell">
-                            {completed}/{total} modules
-                          </span>
-                        </td>
-                        <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</td>
-                        <td>
-                          <span className={`badge ${s.downloadCount >= s.downloadLimit ? 'badge-red' : 'badge-gray'}`}>
-                            {s.downloadCount || 0} / {s.downloadLimit || 3}
-                          </span>
-                        </td>
-                        <td>
-                          <Link to={`/lecturer/watch/${s.id}`} className="btn btn-ghost btn-sm">
-                            View
-                          </Link>
-                        </td>
-                      </tr>
+                      <button
+                        key={wb.id}
+                        className={`tab-btn ${isSelected ? 'active' : ''}`}
+                        onClick={() => handleTabClick(wb.id)}
+                      >
+                        <div className="tab-content">
+                          <span className="tab-title">{wb.title}</span>
+                          <div className="tab-badges">
+                            {activeCount > 0 && (
+                              <span className="tab-badge active" title="Active sessions">
+                                🟢 {activeCount}
+                              </span>
+                            )}
+                            {pendingCount > 0 && (
+                              <span className="tab-badge pending" title="Pending approvals">
+                                ⏳ {pendingCount}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
                     )
                   })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
+                </div>
+              </div>
+
+              {/* Students Table */}
+              {selectedWorkbook && (
+                <div className="students-table-container card">
+                  <div className="table-header">
+                    <div className="table-title">
+                      <h3>{selectedWorkbook.title}</h3>
+                      <span className="student-count">{selectedStudents.length} student{selectedStudents.length !== 1 ? 's' : ''}</span>
+                      <span className="module-count-badge">📚 {totalModules} modules</span>
+                    </div>
+                    <div className="table-actions">
+                      <span className="table-info">
+                        🟢 {selectedStudents.filter(s => s.isActive).length} active
+                      </span>
+                    </div>
+                  </div>
+
+                  {selectedStudents.length === 0 ? (
+                    <div className="empty-students">
+                      <p>No students have started this workbook yet.</p>
+                    </div>
+                  ) : (
+                    <div className="table-scroll-wrapper">
+                      <table className="students-table">
+                        <thead>
+                          <tr>
+                            <th className="student-name-col">Student</th>
+                            <th className="status-col">Complete</th>
+                            <th className="status-col">Approved</th>
+                            <th className="status-col">Pending</th>
+                            <th className="status-col">Revoked</th>
+                            <th className="actions-col">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedStudents.map(student => (
+                            <tr key={student.sessionId} className={student.isActive ? 'active-row' : ''}>
+                              <td className="student-name-cell">
+                                <div className="student-info">
+                                  <span className="student-name">{student.studentName}</span>
+                                  {student.isActive && (
+                                    <span className="live-indicator" title={`Active ${getLastActiveString({lastActive: student.lastActive})}`}>
+                                      🟢
+                                    </span>
+                                  )}
+                                  {student.isComplete && (
+                                    <span className="complete-badge" title="All modules completed">
+                                      ✅
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="status-cell summary-cell">
+                                {student.isComplete ? (
+                                  <span className="badge-complete">Complete</span>
+                                ) : (
+                                  <span className="badge-incomplete">Incomplete</span>
+                                )}
+                              </td>
+                              <td className="status-cell summary-cell">
+                                <span className="status-summary approved">
+                                  {student.approved}/{student.totalModules}
+                                </span>
+                              </td>
+                              <td className="status-cell summary-cell">
+                                <span className="status-summary pending">
+                                  {student.pending}/{student.totalModules}
+                                </span>
+                              </td>
+                              <td className="status-cell summary-cell">
+                                <span className="status-summary revoked">
+                                  {student.revoked}/{student.totalModules}
+                                </span>
+                              </td>
+                              <td className="actions-cell">
+                                <Link
+                                  to={`/lecturer/watch/${student.sessionId}`}
+                                  className="btn btn-primary btn-sm"
+                                >
+                                  View
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </section>
 
       </div>
     </div>

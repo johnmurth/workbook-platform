@@ -1,9 +1,81 @@
 // src/pages/LandingPage.jsx
 import { Link } from 'react-router-dom'
+import { useAuth } from '../lib/AuthContext'
 import Navbar from '../components/shared/Navbar'
 import './LandingPage.css'
 
+// ── Flip this to false to restore the full original landing page ──
+const SIMPLE_LANDING = true
+
 export default function LandingPage() {
+  const { user, profile } = useAuth()
+
+  // ── Determine where the primary CTA should send a logged-in user ──
+  const dashboardPath = profile?.role === 'lecturer' ? '/lecturer' : '/student'
+
+  // ══════════════════════════════════════════════════════════════
+  // SIMPLE MODE: title + CTAs only, navbar kept
+  // ══════════════════════════════════════════════════════════════
+  if (SIMPLE_LANDING) {
+    return (
+      <div className="landing">
+        <Navbar />
+        <section
+          className="hero"
+          style={{
+            minHeight: 'calc(100vh - 72px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div className="hero-deco">
+            <span></span><span></span>
+            <span></span><span></span>
+            <span></span><span></span>
+          </div>
+          <div className="hero-inner" style={{ textAlign: 'center' }}>
+            <div className="hero-tag" style={{ margin: '0 auto 24px' }}>
+              <i className="ti ti-school" aria-hidden="true"></i>
+              Academic Workbook Platform
+            </div>
+            <h1 className="hero-title">
+              Course materials,<br />
+              <em>delivered and assessed</em><br />
+              with precision.
+            </h1>
+            <p className="hero-sub" style={{ margin: '0 auto' }}>
+              {user
+                ? 'Pick up right where you left off.'
+                : 'Sign in to continue, or request access to get started.'}
+            </p>
+            <div className="hero-cta" style={{ marginTop: '32px', justifyContent: 'center' }}>
+              {user ? (
+                <Link to={dashboardPath} className="btn btn-primary btn-lg">
+                  <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                  Go to dashboard
+                </Link>
+              ) : (
+                <>
+                  <Link to="/login" className="btn btn-secondary btn-lg">
+                    Login
+                  </Link>
+                  <Link to="/register" className="btn btn-primary btn-lg">
+                    <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                    Register
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+    )
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // FULL MODE: original layout
+  // ══════════════════════════════════════════════════════════════
   return (
     <div className="landing">
       <Navbar />
@@ -31,10 +103,17 @@ export default function LandingPage() {
             from a single, secure platform.
           </p>
           <div className="hero-cta">
-            <Link to="/register" className="btn btn-primary btn-lg">
-              <i className="ti ti-arrow-right" aria-hidden="true"></i>
-              Request access
-            </Link>
+            {user ? (
+              <Link to={dashboardPath} className="btn btn-primary btn-lg">
+                <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                Go to dashboard
+              </Link>
+            ) : (
+              <Link to="/register" className="btn btn-primary btn-lg">
+                <i className="ti ti-arrow-right" aria-hidden="true"></i>
+                Request access
+              </Link>
+            )}
             <Link to="/store" className="btn btn-secondary btn-lg">
               Browse catalogue
             </Link>

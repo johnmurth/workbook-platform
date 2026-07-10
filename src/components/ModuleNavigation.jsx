@@ -7,7 +7,8 @@ export default function ModuleNavigation({
   currentModule, 
   onModuleChange,
   moduleProgress = {},
-  moduleStatus = {}
+  moduleStatus = {},
+  nextAvailableModule = 1
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -67,16 +68,54 @@ export default function ModuleNavigation({
     const isActive = currentModule === moduleNum
     const isCompleted = progress === 100
     const status = getStatusDisplay(moduleNum)
-
+    const moduleStatusValue = moduleStatus[moduleNum]?.status || 'not_started'
+    
+    // ── CHECK IF MODULE IS ACCESSIBLE ──
+    // Module is accessible if:
+    // 1. It's the cover page (module 0)
+    // 2. It's already approved (can view approved modules in read-only) ✅
+    // 3. It's the current module (always accessible)
+    // 4. It's less than or equal to nextAvailableModule
+    const isCover = module.isCover || moduleNum === 0
+    const isApproved = moduleStatusValue === 'approved'
+    const isCurrent = moduleNum === currentModule
+    const isAccessible = isCover || isApproved || isCurrent || moduleNum <= nextAvailableModule
+    
+    // Module is clickable if it's accessible
+    const isClickable = isAccessible
+    
+    // Determine if module is in read-only mode
+    const isReadOnly = isApproved || moduleStatusValue === 'pending'
+    
     return (
       <button
         key={index}
-        className={`${mobile ? 'mobile-module-item' : 'module-item'} ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${status.className}`}
-        onClick={() => handleModuleClick(moduleNum)}
+        className={`${mobile ? 'mobile-module-item' : 'module-item'} 
+          ${isActive ? 'active' : ''} 
+          ${isCompleted ? 'completed' : ''} 
+          ${status.className} 
+          ${!isClickable ? 'locked' : ''}
+          ${isCover ? 'cover-item' : ''}
+          ${isApproved ? 'approved-module' : ''}
+          ${isReadOnly ? 'readonly-module' : ''}`}
+        onClick={() => isClickable && handleModuleClick(moduleNum)}
+        disabled={!isClickable}
+        title={
+          !isClickable 
+            ? `Complete Module ${moduleNum - 1} first` 
+            : isApproved 
+              ? '📖 View approved module (read-only)' 
+              : isReadOnly 
+                ? '📖 Read-only - pending review'
+                : ''
+        }
       >
         <div className="module-info">
           <span className="module-number">
-            {module.isCover ? '📄' : `Module ${moduleNum}`}
+            {isCover ? '📄' : `Module ${moduleNum}`}
+            {!isClickable && <span className="lock-icon">🔒</span>}
+            {isApproved && <span className="readonly-icon">📖</span>}
+            {isReadOnly && !isApproved && <span className="readonly-icon">📖</span>}
           </span>
           <span className="module-title">{label}</span>
         </div>
@@ -104,6 +143,15 @@ export default function ModuleNavigation({
         </div>
         <div className="module-list">
           {modules.map((module, index) => renderModuleItem(module, index, false))}
+        </div>
+        <div className="module-nav-footer">
+          <div className="next-module-info">
+            {nextAvailableModule <= modules.length ? (
+              <span>Next: Module {nextAvailableModule}</span>
+            ) : (
+              <span>✅ All modules complete!</span>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -134,6 +182,15 @@ export default function ModuleNavigation({
         </div>
         <div className="mobile-module-list">
           {modules.map((module, index) => renderModuleItem(module, index, true))}
+        </div>
+        <div className="mobile-nav-footer">
+          <div className="next-module-info">
+            {nextAvailableModule <= modules.length ? (
+              <span>Next: Module {nextAvailableModule}</span>
+            ) : (
+              <span>✅ All modules complete!</span>
+            )}
+          </div>
         </div>
       </div>
     </>

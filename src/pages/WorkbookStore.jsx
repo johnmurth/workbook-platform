@@ -1,7 +1,7 @@
 // src/pages/WorkbookStore.jsx
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
 import Navbar from '../components/shared/Navbar'
@@ -14,36 +14,38 @@ export default function WorkbookStore() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [priceRange, setPriceRange] = useState('all')
-  const [error, setError] = useState('')  // ← ADD THIS LINE (was missing)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    fetchWorkbooks()
-  }, [])
-
-  const fetchWorkbooks = async () => {
     setLoading(true)
-    setError('')  // ← Clear previous errors
-    try {
-      console.log('Fetching all workbooks...')
-      const q = query(
-        collection(db, 'workbooks'),
-        where('active', '==', true),
-        orderBy('createdAt', 'desc')
-      )
-      const querySnapshot = await getDocs(q)
-      const workbookList = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      console.log('Found workbooks:', workbookList.length)
-      setWorkbooks(workbookList)
-    } catch (error) {
-      console.error('Error fetching workbooks:', error)
-      setError('Failed to load workbooks. Please refresh the page.')
-    } finally {
-      setLoading(false)
-    }
-  }
+    setError('')
+
+    const q = query(
+      collection(db, 'workbooks'),
+      where('active', '==', true),
+      orderBy('createdAt', 'desc')
+    )
+
+    const unsub = onSnapshot(
+      q,
+      snap => {
+        const workbookList = snap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          // Exclude soft-deleted workbooks — 'active' alone doesn't cover this
+          .filter(wb => !wb.isDeleted)
+
+        setWorkbooks(workbookList)
+        setLoading(false)
+      },
+      err => {
+        console.error('Error fetching workbooks:', err)
+        setError('Failed to load workbooks. Please refresh the page.')
+        setLoading(false)
+      }
+    )
+
+    return unsub
+  }, [])
 
   const filteredWorkbooks = workbooks.filter(wb => {
     const matchesSearch = wb.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||

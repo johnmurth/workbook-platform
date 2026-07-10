@@ -32,6 +32,11 @@ export default function SessionPage() {
   const [loadingModule, setLoadingModule] = useState(false)
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [nextAvailableModule, setNextAvailableModule] = useState(1)
+  // Keep modulesRef always up to date with latest modules
+  useEffect(() => {
+    modulesRef.current = modules
+  }, [modules])
 
   const saveTimeoutRef = useRef(null)
   const documentContainerRef = useRef(null)
@@ -39,6 +44,44 @@ export default function SessionPage() {
   const handleFieldChangeRef = useRef(null)
   const heartbeatIntervalRef = useRef(null)
   const moduleContentCache = useRef({})
+  const modulesRef = useRef([])
+
+  // ── Get the next available module number ──
+  const getNextAvailableModule = (statusMap = moduleStatus, moduleList = modules) => {
+    if (moduleList.length === 0) return 1
+    let highestApproved = 0
+    moduleList.forEach(module => {
+      const moduleNum = module.moduleNumber
+      if (statusMap[moduleNum]?.status === 'approved') {
+        highestApproved = Math.max(highestApproved, moduleNum)
+      }
+    })
+    const nextModule = highestApproved === 0 ? 1 : highestApproved + 1
+    return Math.min(nextModule, moduleList.length)
+  }
+
+  // ── Check if module is in read-only mode ──
+  const isModuleReadOnly = (moduleNum) => {
+    const status = moduleStatus[moduleNum]?.status || 'not_started'
+    return status === 'approved' || status === 'pending'
+  }
+
+  // ── Check if module can be edited ──
+  const canEditModule = (moduleNum) => {
+    const status = moduleStatus[moduleNum]?.status || 'not_started'
+    // Only editable when not_started or revoked
+    return status === 'not_started' || status === 'revoked'
+  }
+
+  // ── Check if module is approved ──
+  const isModuleApproved = (moduleNum) => {
+    return moduleStatus[moduleNum]?.status === 'approved'
+  }
+
+  // ── Check if module is pending ──
+  const isModulePending = (moduleNum) => {
+    return moduleStatus[moduleNum]?.status === 'pending'
+  }
 
   // ── HEARTBEAT: Update lastActive every 10 seconds ──
   const updateLastActive = async () => {
@@ -165,10 +208,19 @@ export default function SessionPage() {
       console.log('📦 Modules list:', modulesList.map(m => ({ number: m.moduleNumber, title: m.title, hasUrl: !!m.contentUrl })))
       setModules(modulesList)
       
-      // Load the first module
-      const targetModule = sessionData.currentModule ?? 1
-      const moduleToLoad = modulesList.find(m => m.moduleNumber === targetModule) || modulesList[0]
+      // Calculate next available module
+      const nextAvail = getNextAvailableModule()
+      setNextAvailableModule(nextAvail)
       
+      // Load the appropriate module
+      let targetModule = sessionData.currentModule ?? 1
+      
+      // If current module is beyond next available, redirect to next available
+      if (targetModule > nextAvail) {
+        targetModule = nextAvail
+      }
+      
+      const moduleToLoad = modulesList.find(m => m.moduleNumber === targetModule) || modulesList[0]
       await loadModuleContent(moduleToLoad)
       
     } catch (err) {
@@ -177,7 +229,20 @@ export default function SessionPage() {
     }
   }
 
-  // ── NEW: Load module content from Storage URL ──
+  // ── Helper: Update current module in DB ──
+  const updateCurrentModuleInDB = async (moduleNumber) => {
+    try {
+      const sessionRef = doc(db, 'WBsessions', sessionId)
+      await updateDoc(sessionRef, { 
+        currentModule: moduleNumber,
+        lastActive: new Date()
+      })
+    } catch (err) {
+      console.error('Error updating current module:', err)
+    }
+  }
+
+  // ── Load module content from Storage URL ──
   const loadModuleContent = async (module) => {
     if (!module) return
     
@@ -221,23 +286,7 @@ export default function SessionPage() {
     }
   }
 
-  // ── Check if module can be edited ──
-  const canEditModule = (moduleNum) => {
-    const status = moduleStatus[moduleNum]?.status || 'not_started'
-    return status === 'not_started' || status === 'revoked'
-  }
-
-  // ── Check if module is approved ──
-  const isModuleApproved = (moduleNum) => {
-    return moduleStatus[moduleNum]?.status === 'approved'
-  }
-
-  // ── Check if module is pending ──
-  const isModulePending = (moduleNum) => {
-    return moduleStatus[moduleNum]?.status === 'pending'
-  }
-
-  // ── Handle module change with approval check ──
+  // ── Handle module change with chronological enforcement ──
   const handleModuleChange = async (moduleNumber) => {
     if (moduleNumber === null || moduleNumber === undefined) {
       console.error('❌ Invalid module number:', moduleNumber)
@@ -246,12 +295,70 @@ export default function SessionPage() {
     
     if (moduleNumber === currentModule) return
     
-    // Check if current module is approved before allowing navigation
-    const currentModuleStatus = moduleStatus[currentModule]?.status
-    if (currentModuleStatus !== 'approved' && currentModuleStatus !== 'not_started') {
-      setError('⚠️ You must wait for the lecturer to approve this module before proceeding.')
-      setTimeout(() => setError(''), 5000)
+    // ── CHECK IF MODULE IS APPROVED (READ-ONLY ACCESS) ──
+    const targetModuleStatus = moduleStatus[moduleNumber]?.status || 'not_started'
+    const isTargetApproved = targetModuleStatus === 'approved'
+    
+    // ── ALLOW VIEWING APPROVED MODULES (READ-ONLY) ──
+    if (isTargetApproved) {
+      console.log('📖 Viewing approved module in read-only mode:', moduleNumber)
+      const newModule = modules.find(m => m.moduleNumber === moduleNumber)
+      if (!newModule) {
+        console.error('❌ Module not found:', moduleNumber)
+        return
+      }
+      
+      // Save current work before switching
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+      saveAnswers(answers, true)
+      
+      // Load the approved module content
+      await loadModuleContent(newModule)
+      
+      const moduleAnswerKey = `module_${moduleNumber}`
+      const moduleAns = answers[moduleAnswerKey] || {}
+      setModuleAnswers(moduleAns)
+      
+      await updateCurrentModuleInDB(moduleNumber)
+      
+      setTimeout(() => {
+        if (documentContainerRef.current) {
+          documentContainerRef.current.scrollTop = 0
+        }
+      }, 100)
       return
+    }
+    
+    // ── FOR NON-APPROVED MODULES: ENFORCE CHRONOLOGICAL ORDER ──
+    const nextAvail = getNextAvailableModule()
+    setNextAvailableModule(nextAvail)
+    
+    // If trying to go to a module that's not the next available, redirect
+    if (moduleNumber > nextAvail) {
+      setError(`⚠️ You must complete Module ${nextAvail - 1} first before accessing Module ${moduleNumber}.`)
+      setTimeout(() => setError(''), 5000)
+      
+      // Redirect to the next available module if different from current
+      if (nextAvail !== currentModule) {
+        const targetModule = modules.find(m => m.moduleNumber === nextAvail)
+        if (targetModule) {
+          await loadModuleContent(targetModule)
+          await updateCurrentModuleInDB(nextAvail)
+        }
+      }
+      return
+    }
+    
+    // Check if current module is approved before allowing forward navigation
+    if (moduleNumber > currentModule) {
+      const currentModuleStatus = moduleStatus[currentModule]?.status
+      if (currentModuleStatus !== 'approved' && currentModuleStatus !== 'not_started') {
+        setError('⚠️ You must wait for the lecturer to approve this module before proceeding.')
+        setTimeout(() => setError(''), 5000)
+        return
+      }
     }
     
     console.log('🔄 Switching to module:', moduleNumber)
@@ -274,15 +381,7 @@ export default function SessionPage() {
     const moduleAns = answers[moduleAnswerKey] || {}
     setModuleAnswers(moduleAns)
     
-    try {
-      const sessionRef = doc(db, 'WBsessions', sessionId)
-      await updateDoc(sessionRef, { 
-        currentModule: moduleNumber,
-        lastActive: new Date()
-      })
-    } catch (err) {
-      console.error('Error updating current module:', err)
-    }
+    await updateCurrentModuleInDB(moduleNumber)
     
     setTimeout(() => {
       if (documentContainerRef.current) {
@@ -291,8 +390,15 @@ export default function SessionPage() {
     }, 100)
   }
 
+  // ── Handle field change with read-only protection ──
   const handleFieldChange = (fieldId, value) => {
-    // Don't allow editing if module is not editable
+    // Don't allow editing if module is read-only (approved or pending)
+    if (isModuleReadOnly(currentModule)) {
+      console.log('📖 Module is read-only, cannot edit')
+      return
+    }
+    
+    // Only allow editing for not_started or revoked
     if (!canEditModule(currentModule)) return
     
     const moduleKey = `module_${currentModule}`
@@ -344,14 +450,52 @@ export default function SessionPage() {
     }
   }
 
+  // ── Lock or unlock document based on module status ──
+  const lockOrUnlockDocument = (container) => {
+    if (!container) return
+    
+    const status = moduleStatus[currentModule]?.status || 'not_started'
+    const isReadOnly = status === 'approved' || status === 'pending'
+    const canEdit = !isReadOnly && canEditModule(currentModule)
+    
+    // Lock or unlock contenteditable elements
+    container.querySelectorAll('[contenteditable]').forEach(el => {
+      if (isReadOnly || !canEdit) {
+        el.setAttribute('contenteditable', 'false')
+        el.style.pointerEvents = 'none'
+        el.style.cursor = 'default'
+        el.style.opacity = '0.85'
+        el.setAttribute('data-readonly', 'true')
+        el.title = isReadOnly ? '📖 Read-only mode' : '🔒 Locked'
+      } else {
+        el.setAttribute('contenteditable', 'true')
+        el.style.pointerEvents = 'auto'
+        el.style.cursor = 'text'
+        el.style.opacity = '1'
+        el.removeAttribute('data-readonly')
+        el.title = ''
+      }
+    })
+    
+    // Lock or unlock checkbox and radio elements
+    container.querySelectorAll('.fillable-checkbox, .fillable-radio').forEach(el => {
+      if (isReadOnly || !canEdit) {
+        el.style.pointerEvents = 'none'
+        el.style.cursor = 'default'
+        el.style.opacity = '0.85'
+      } else {
+        el.style.pointerEvents = 'auto'
+        el.style.cursor = 'pointer'
+        el.style.opacity = '1'
+      }
+    })
+  }
+
   // ── SUBMIT MODULE ──
   const handleSubmitModule = async () => {
     setSubmitting(true)
     try {
       const sessionRef = doc(db, 'WBsessions', sessionId)
-      
-      // Get current module status
-      const currentStatus = moduleStatus[currentModule]?.status || 'not_started'
       
       // Update module status to pending
       await updateDoc(sessionRef, {
@@ -388,6 +532,43 @@ export default function SessionPage() {
     }
   }
 
+  // ── Track previous statuses so we only react to an actual approval EVENT,
+  //    not to every navigation that lands on an already-approved module ──
+  const prevModuleStatusRef = useRef({})
+
+  useEffect(() => {
+    if (!modules.length || !sessionId) return
+
+    const prevStatus = prevModuleStatusRef.current
+    let justApproved = null
+
+    Object.keys(moduleStatus).forEach(key => {
+      const moduleNum = Number(key)
+      const wasApproved = prevStatus[moduleNum]?.status === 'approved'
+      const isApproved = moduleStatus[moduleNum]?.status === 'approved'
+      if (!wasApproved && isApproved) {
+        justApproved = moduleNum
+      }
+    })
+
+    prevModuleStatusRef.current = moduleStatus
+
+    // Only auto-advance if the module that JUST flipped to approved
+    // is the module the student is currently sitting on
+    if (justApproved !== null && justApproved === currentModule) {
+      const nextAvail = getNextAvailableModule()
+      setNextAvailableModule(nextAvail)
+
+      if (nextAvail > currentModule) {
+        const targetModule = modules.find(m => m.moduleNumber === nextAvail)
+        if (targetModule) {
+          handleModuleChange(nextAvail)
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleStatus, modules, sessionId])
+
   // Real-time listener for session updates
   useEffect(() => {
     if (!sessionId) return
@@ -395,10 +576,18 @@ export default function SessionPage() {
     const unsubscribe = onSnapshot(sessionRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data()
+        const freshModuleStatus = data.moduleStatus || {}
+
         setAnswers(data.answers || {})
         setModuleProgress(data.moduleProgress || {})
-        setModuleStatus(data.moduleStatus || {})
+        setModuleStatus(freshModuleStatus)
         setLastSaved(new Date())
+
+        // Use modulesRef (always current) instead of stale `modules`
+        if (modulesRef.current.length > 0) {
+          const nextAvail = getNextAvailableModule(freshModuleStatus, modulesRef.current)
+          setNextAvailableModule(nextAvail)
+        }
       }
     })
     return () => unsubscribe()
@@ -420,43 +609,11 @@ export default function SessionPage() {
     loadSavedAnswers(container, moduleAns)
     
     // Lock or unlock based on status
-    const canEdit = canEditModule(currentModule)
-    lockOrUnlockDocument(container, canEdit)
+    lockOrUnlockDocument(container)
     
     container.scrollTop = 0
     
   }, [currentModuleContent, currentModule, loadingModule, moduleStatus])
-
-  // ── Lock or unlock document ──
-  const lockOrUnlockDocument = (container, canEdit) => {
-    if (!container) return
-    
-    container.querySelectorAll('[contenteditable]').forEach(el => {
-      if (canEdit) {
-        el.setAttribute('contenteditable', 'true')
-        el.style.pointerEvents = 'auto'
-        el.style.cursor = 'text'
-        el.style.opacity = '1'
-      } else {
-        el.setAttribute('contenteditable', 'false')
-        el.style.pointerEvents = 'none'
-        el.style.cursor = 'default'
-        el.style.opacity = '0.85'
-      }
-    })
-    
-    container.querySelectorAll('.fillable-checkbox, .fillable-radio').forEach(el => {
-      if (canEdit) {
-        el.style.pointerEvents = 'auto'
-        el.style.cursor = 'pointer'
-        el.style.opacity = '1'
-      } else {
-        el.style.pointerEvents = 'none'
-        el.style.cursor = 'default'
-        el.style.opacity = '0.85'
-      }
-    })
-  }
 
   // ── Render module status badge ──
   const renderStatusBadge = () => {
@@ -467,23 +624,35 @@ export default function SessionPage() {
       case 'approved':
         return (
           <div className="status-badge approved">
-            ✅ Approved
-            {remarks && <span className="remarks-text"> - {remarks}</span>}
+            <div className="status-badge-header">
+              <span className="status-icon">✅</span>
+              <span className="status-label">Approved</span>
+              <span className="status-badge-readonly">📖 Read-Only</span>
+            </div>
+            {remarks && <div className="remarks-text">📝 {remarks}</div>}
+            <div className="status-sub">This module has been approved and is in read-only mode</div>
           </div>
         )
       case 'pending':
         return (
           <div className="status-badge pending">
-            ⏳ Pending Approval
-            <span className="status-sub">Waiting for lecturer...</span>
+            <div className="status-badge-header">
+              <span className="status-icon">⏳</span>
+              <span className="status-label">Pending Approval</span>
+              <span className="status-badge-readonly">📖 Read-Only</span>
+            </div>
+            <div className="status-sub">Waiting for lecturer review...</div>
           </div>
         )
       case 'revoked':
         return (
           <div className="status-badge revoked">
-            ❌ Revoked
-            {remarks && <span className="remarks-text"> - {remarks}</span>}
-            <span className="status-sub">Please revise and resubmit</span>
+            <div className="status-badge-header">
+              <span className="status-icon">❌</span>
+              <span className="status-label">Revoked</span>
+            </div>
+            {remarks && <div className="remarks-text">📝 {remarks}</div>}
+            <div className="status-sub">Please revise and resubmit</div>
           </div>
         )
       default:
@@ -495,10 +664,20 @@ export default function SessionPage() {
   const renderSubmitButton = () => {
     const status = moduleStatus[currentModule]?.status || 'not_started'
     
-    // Don't show for approved modules
-    if (status === 'approved') return null
+    // For approved modules, show read-only message
+    if (status === 'approved') {
+      return (
+        <div className="submit-section readonly">
+          <div className="submit-info">
+            <span className="submit-icon">✅</span>
+            <span>Module approved — viewing in read-only mode</span>
+          </div>
+          <div className="submit-hint">📖 You can view but not edit approved modules</div>
+        </div>
+      )
+    }
     
-    // Show pending status
+    // For pending modules, show waiting message
     if (status === 'pending') {
       return (
         <div className="submit-section disabled">
@@ -506,6 +685,7 @@ export default function SessionPage() {
             <span className="submit-icon">⏳</span>
             <span>Module submitted — waiting for lecturer approval</span>
           </div>
+          <div className="submit-hint">📖 Read-only while under review</div>
         </div>
       )
     }
@@ -532,6 +712,17 @@ export default function SessionPage() {
 
   const handleDownload = async () => {
     if (!session || !workbook) return
+
+    // ── require ALL modules approved before allowing download ──
+    const allApproved = modules.length > 0 && modules.every(
+      m => moduleStatus[m.moduleNumber]?.status === 'approved'
+    )
+    if (!allApproved) {
+      setError('⚠️ You can only download once all modules have been approved by your lecturer.')
+      setTimeout(() => setError(''), 5000)
+      return
+    }
+
     if (session.downloadCount >= session.downloadLimit) {
       setError(`Download limit reached (${session.downloadLimit}/${session.downloadLimit})`)
       return
@@ -663,7 +854,7 @@ export default function SessionPage() {
     )
   }
 
-  // ── REPLACE THE ERROR STATE DISPLAY ──
+  // ── ERROR STATE DISPLAY ──
   if (error) {
     return (
       <div>
@@ -674,7 +865,7 @@ export default function SessionPage() {
               <div className="error-modal">
                 <button 
                   className="error-close-btn"
-                  onClick={() => setError('')}  // ← Just clear error, stay on session
+                  onClick={() => setError('')}
                 >
                   ✕
                 </button>
@@ -693,6 +884,7 @@ export default function SessionPage() {
   const completedModules = Object.values(moduleProgress).filter(p => p === 100).length
   const approvedModules = Object.values(moduleStatus).filter(s => s.status === 'approved').length
   const currentStatus = moduleStatus[currentModule]?.status || 'not_started'
+  const isReadOnly = isModuleReadOnly(currentModule)
 
   return (
     <div>
@@ -765,17 +957,23 @@ export default function SessionPage() {
             <div className="document-layout">
               <div className="module-sidebar">
                 <ModuleNavigation
+                  key={currentModule}
                   modules={modules}
                   currentModule={currentModule}
                   onModuleChange={handleModuleChange}
                   moduleProgress={moduleProgress}
                   moduleStatus={moduleStatus}
+                  nextAvailableModule={nextAvailableModule}
                 />
               </div>
 
               <div className="document-content">
                 <div className="document-instructions">
-                  <p>💡 <strong>How to fill:</strong> Click on any blank (_____), checkbox (□), or radio (○) to fill. Everything saves automatically.</p>
+                  {isReadOnly ? (
+                    <p>📖 <strong>Read-Only Mode:</strong> This module is {currentStatus === 'approved' ? 'approved' : 'pending review'} and cannot be edited.</p>
+                  ) : (
+                    <p>💡 <strong>How to fill:</strong> Click on any blank (_____), checkbox (□), or radio (○) to fill. Everything saves automatically.</p>
+                  )}
                 </div>
                 
                 {/* ── STATUS BADGE ── */}
@@ -789,6 +987,7 @@ export default function SessionPage() {
                         const moduleTitle = currentModuleData?.title || ''
                         return `Module ${currentModule}: ${moduleTitle}`
                       })()}
+                      {isReadOnly && <span className="readonly-badge">🔒 Read-Only</span>}
                     </h2>
                   </div>
                   <div className="module-controls">
@@ -814,7 +1013,8 @@ export default function SessionPage() {
                         }}
                         disabled={
                           currentModule === modules.length || 
-                          (currentStatus !== 'approved' && currentStatus !== 'not_started')
+                          (currentStatus !== 'approved' && currentStatus !== 'not_started') ||
+                          currentModule >= nextAvailableModule
                         }
                       >
                         Next →
@@ -823,7 +1023,7 @@ export default function SessionPage() {
                   </div>
                 </div>
                 
-                <div className={`document-viewer card ${!canEditModule(currentModule) ? 'locked' : ''}`} ref={documentContainerRef}>
+                <div className={`document-viewer card ${isReadOnly ? 'readonly' : ''} ${!canEditModule(currentModule) ? 'locked' : ''}`} ref={documentContainerRef}>
                   {loadingModule ? (
                     <div className="loading-document"><span className="spinner"></span> Loading module...</div>
                   ) : processing ? (
@@ -834,6 +1034,17 @@ export default function SessionPage() {
                     <div className="empty-document">No content available for this module</div>
                   )}
                 </div>
+                
+                {/* ── READ-ONLY OVERLAY ── */}
+                {isReadOnly && (
+                  <div className="readonly-overlay">
+                    <div className="readonly-overlay-content">
+                      <span className="readonly-icon">📖</span>
+                      <span>Read-Only Mode</span>
+                      <span className="readonly-sub">This module is {currentStatus === 'approved' ? 'approved' : 'pending review'}</span>
+                    </div>
+                  </div>
+                )}
                 
                 {/* ── SUBMIT SECTION ── */}
                 {renderSubmitButton()}
@@ -857,7 +1068,8 @@ export default function SessionPage() {
                     }}
                     disabled={
                       currentModule === modules.length || 
-                      (currentStatus !== 'approved' && currentStatus !== 'not_started')
+                      (currentStatus !== 'approved' && currentStatus !== 'not_started') ||
+                      currentModule >= nextAvailableModule
                     }
                   >
                     Next Module →

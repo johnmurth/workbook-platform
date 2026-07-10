@@ -1,5 +1,3 @@
-// src/lib/moduleUtils.js
-
 /**
  * Detect section headers in document HTML
  * Matches patterns like: "SECTION 1:", "SECTION 2:", etc.

@@ -199,7 +199,7 @@ exports.mpesaCallback = onRequest(async (req, res) => {
       res.status(200).send({ ResultCode: 0, ResultDesc: "Accepted" });
       return;
     }
-
+1
     const checkoutRequestId = callback.CheckoutRequestID;
     const resultCode = callback.ResultCode;
     const resultDesc = callback.ResultDesc;

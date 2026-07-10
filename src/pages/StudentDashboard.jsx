@@ -1,7 +1,7 @@
 // src/pages/StudentDashboard.jsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, orderBy } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../lib/AuthContext'
 import { calculateModuleProgress } from '../lib/moduleUtils'
@@ -12,48 +12,130 @@ export default function StudentDashboard() {
   const { user, profile } = useAuth()
   const [purchases, setPurchases] = useState([])
   const [sessions, setSessions] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [purchasesLoaded, setPurchasesLoaded] = useState(false)
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
+  const [deletedWorkbookIds, setDeletedWorkbookIds] = useState(new Set())
   const [activeTab, setActiveTab] = useState('workbooks')
 
+  // Tracks active per-workbook onSnapshot unsubscribers, keyed by workbookId
+  const workbookListenersRef = useRef({})
+
+  // ── Real-time listener: purchases ──
   useEffect(() => {
-    if (user) {
-      fetchStudentData()
-    }
+    if (!user) return
+    const purchasesQuery = query(
+      collection(db, 'WBpurchases'),
+      where('studentUid', '==', user.uid),
+      orderBy('purchaseDate', 'desc')
+    )
+    const unsub = onSnapshot(purchasesQuery, snap => {
+      setPurchases(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setPurchasesLoaded(true)
+    }, err => {
+      console.error('Error listening to purchases:', err)
+      setPurchasesLoaded(true)
+    })
+    return unsub
   }, [user])
 
-  const fetchStudentData = async () => {
-    try {
-      // Fetch all purchases for this student
-      const purchasesQuery = query(
-        collection(db, 'WBpurchases'),
-        where('studentUid', '==', user.uid),
-        orderBy('purchaseDate', 'desc')
-      )
-      const purchasesSnap = await getDocs(purchasesQuery)
-      const purchasesList = purchasesSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      setPurchases(purchasesList)
+  // ── Real-time listener: sessions ──
+  useEffect(() => {
+    if (!user) return
+    const sessionsQuery = query(
+      collection(db, 'WBsessions'),
+      where('studentUid', '==', user.uid),
+      orderBy('lastActive', 'desc')
+    )
+    const unsub = onSnapshot(sessionsQuery, snap => {
+      setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setSessionsLoaded(true)
+    }, err => {
+      console.error('Error listening to sessions:', err)
+      setSessionsLoaded(true)
+    })
+    return unsub
+  }, [user])
 
-      // Fetch all sessions for this student
-      const sessionsQuery = query(
-        collection(db, 'WBsessions'),
-        where('studentUid', '==', user.uid),
-        orderBy('lastActive', 'desc')
+  // ── Derive the current set of workbookIds referenced by purchases/sessions ──
+  const workbookIds = useMemo(() => {
+    return [
+      ...new Set([
+        ...purchases.map(p => p.workbookId).filter(Boolean),
+        ...sessions.map(s => s.workbookId).filter(Boolean)
+      ])
+    ]
+  }, [purchases, sessions])
+
+  // ── Keep a live onSnapshot listener on each referenced workbook doc,
+  //    adding/removing listeners as the set of workbookIds changes,
+  //    so isDeleted flips (delete/undo) reflect instantly ──
+  useEffect(() => {
+    const current = workbookListenersRef.current
+    const currentIds = new Set(Object.keys(current))
+    const neededIds = new Set(workbookIds)
+
+    // Start listening to any new workbookIds
+    workbookIds.forEach(workbookId => {
+      if (current[workbookId]) return // already listening
+
+      const unsub = onSnapshot(
+        doc(db, 'workbooks', workbookId),
+        wbSnap => {
+          setDeletedWorkbookIds(prev => {
+            const next = new Set(prev)
+            const isGone = !wbSnap.exists() || wbSnap.data().isDeleted
+            if (isGone) {
+              next.add(workbookId)
+            } else {
+              next.delete(workbookId)
+            }
+            return next
+          })
+        },
+        err => {
+          console.error('Error listening to workbook', workbookId, err)
+        }
       )
-      const sessionsSnap = await getDocs(sessionsQuery)
-      const sessionsList = sessionsSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      setSessions(sessionsList)
-    } catch (error) {
-      console.error('Error fetching student data:', error)
-    } finally {
-      setLoading(false)
+      current[workbookId] = unsub
+    })
+
+    // Stop listening to workbookIds no longer referenced
+    currentIds.forEach(workbookId => {
+      if (!neededIds.has(workbookId)) {
+        current[workbookId]()
+        delete current[workbookId]
+        setDeletedWorkbookIds(prev => {
+          if (!prev.has(workbookId)) return prev
+          const next = new Set(prev)
+          next.delete(workbookId)
+          return next
+        })
+      }
+    })
+    // Note: no cleanup return here — listeners are intentionally kept alive
+    // across renders and only torn down above when a workbookId drops out,
+    // or on unmount below.
+  }, [workbookIds])
+
+  // ── Tear down all workbook listeners on unmount ──
+  useEffect(() => {
+    return () => {
+      Object.values(workbookListenersRef.current).forEach(unsub => unsub())
+      workbookListenersRef.current = {}
     }
-  }
+  }, [])
+
+  // ── Filtered lists: hide anything tied to a deleted/missing workbook ──
+  const visiblePurchases = useMemo(
+    () => purchases.filter(p => !deletedWorkbookIds.has(p.workbookId)),
+    [purchases, deletedWorkbookIds]
+  )
+  const visibleSessions = useMemo(
+    () => sessions.filter(s => !deletedWorkbookIds.has(s.workbookId)),
+    [sessions, deletedWorkbookIds]
+  )
+
+  const loading = !purchasesLoaded || !sessionsLoaded
 
   const getProgressPercentage = (session) => {
     if (!session.answers) return 0
@@ -104,7 +186,7 @@ export default function StudentDashboard() {
               <p>Continue your learning journey where you left off</p>
             </div>
             <div className="stats-badge">
-              <span className="stat-value">{purchases.length}</span>
+              <span className="stat-value">{visiblePurchases.length}</span>
               <span className="stat-label" style={{ color: 'white' }}>Workbooks Purchased</span>
             </div>
           </div>
@@ -120,6 +202,7 @@ export default function StudentDashboard() {
             <button 
               className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`}
               onClick={() => setActiveTab('sessions')}
+              style={{ display: "none"}}
             >
               📝 Active Sessions
             </button>
@@ -128,7 +211,7 @@ export default function StudentDashboard() {
           {/* Workbooks Tab */}
           {activeTab === 'workbooks' && (
             <div className="workbooks-tab">
-              {purchases.length === 0 ? (
+              {visiblePurchases.length === 0 ? (
                 <div className="empty-state card">
                   <div className="empty-icon">📚</div>
                   <h3>No workbooks yet</h3>
@@ -139,8 +222,8 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 <div className="purchased-grid">
-                  {purchases.map((purchase) => {
-                    const session = sessions.find(s => s.id === purchase.sessionId)
+                  {visiblePurchases.map((purchase) => {
+                    const session = visibleSessions.find(s => s.id === purchase.sessionId)
                     const modulesCompleted = session ? getModulesCompleted(session) : 0
                     const totalModules = session ? getTotalModules(session) : 1
                     
@@ -157,7 +240,7 @@ export default function StudentDashboard() {
                         <p className="lecturer-name">by {purchase.lecturerName}</p>
                         
                         {/* NEW: Module progress display */}
-                        <div className="module-progress-section">
+                        <div className="module-progress-section" style={{ display: "none"}}>
                           <div className="module-progress-header">
                             <span>Progress: {modulesCompleted}/{totalModules} Modules</span>
                             <span>{Math.round((modulesCompleted/totalModules) * 100)}%</span>
@@ -183,7 +266,7 @@ export default function StudentDashboard() {
                         </div>
                         
                         <div className="session-info">
-                          <div className="download-info">
+                          <div className="download-info" style={{ display: "none"}}>
                             📥 Downloads: {session?.downloadCount || 0} / {session?.downloadLimit || 3}
                           </div>
                           {session?.lastActive?.toDate && (
@@ -212,7 +295,7 @@ export default function StudentDashboard() {
           {/* Sessions Tab - Updated to show module info */}
           {activeTab === 'sessions' && (
             <div className="sessions-tab">
-              {sessions.length === 0 ? (
+              {visibleSessions.length === 0 ? (
                 <div className="empty-state card">
                   <div className="empty-icon">📝</div>
                   <h3>No active sessions</h3>
@@ -223,7 +306,7 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 <div className="sessions-list">
-                  {sessions.map((session) => {
+                  {visibleSessions.map((session) => {
                     const modulesCompleted = getModulesCompleted(session)
                     const totalModules = getTotalModules(session)
                     
@@ -264,7 +347,7 @@ export default function StudentDashboard() {
           )}
 
           {/* Quick Tips */}
-          <div className="tips-section">
+          <div className="tips-section"  style={{ display: "none"}}>
             <h4>💡 Quick Tips</h4>
             <ul>
               <li>Your progress is saved automatically as you fill your workbook</li>
