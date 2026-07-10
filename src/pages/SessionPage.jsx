@@ -31,12 +31,11 @@ export default function SessionPage() {
   const [processing, setProcessing] = useState(false)
   const [loadingModule, setLoadingModule] = useState(false)
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
+  const [showDownloadModal, setShowDownloadModal] = useState(false)
+  const [showNavErrorModal, setShowNavErrorModal] = useState(false)
+  const [navErrorMessage, setNavErrorMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [nextAvailableModule, setNextAvailableModule] = useState(1)
-  // Keep modulesRef always up to date with latest modules
-  useEffect(() => {
-    modulesRef.current = modules
-  }, [modules])
 
   const saveTimeoutRef = useRef(null)
   const documentContainerRef = useRef(null)
@@ -45,6 +44,11 @@ export default function SessionPage() {
   const heartbeatIntervalRef = useRef(null)
   const moduleContentCache = useRef({})
   const modulesRef = useRef([])
+
+  // Keep modulesRef always up to date with latest modules
+  useEffect(() => {
+    modulesRef.current = modules
+  }, [modules])
 
   // ── Get the next available module number ──
   const getNextAvailableModule = (statusMap = moduleStatus, moduleList = modules) => {
@@ -69,7 +73,6 @@ export default function SessionPage() {
   // ── Check if module can be edited ──
   const canEditModule = (moduleNum) => {
     const status = moduleStatus[moduleNum]?.status || 'not_started'
-    // Only editable when not_started or revoked
     return status === 'not_started' || status === 'revoked'
   }
 
@@ -335,10 +338,10 @@ export default function SessionPage() {
     const nextAvail = getNextAvailableModule()
     setNextAvailableModule(nextAvail)
     
-    // If trying to go to a module that's not the next available, redirect
+    // If trying to go to a module that's not the next available, show modal
     if (moduleNumber > nextAvail) {
-      setError(`⚠️ You must complete Module ${nextAvail - 1} first before accessing Module ${moduleNumber}.`)
-      setTimeout(() => setError(''), 5000)
+      setNavErrorMessage(`⚠️ You must complete Module ${nextAvail - 1} first before accessing Module ${moduleNumber}.`)
+      setShowNavErrorModal(true)
       
       // Redirect to the next available module if different from current
       if (nextAvail !== currentModule) {
@@ -355,8 +358,8 @@ export default function SessionPage() {
     if (moduleNumber > currentModule) {
       const currentModuleStatus = moduleStatus[currentModule]?.status
       if (currentModuleStatus !== 'approved' && currentModuleStatus !== 'not_started') {
-        setError('⚠️ You must wait for the lecturer to approve this module before proceeding.')
-        setTimeout(() => setError(''), 5000)
+        setNavErrorMessage('⚠️ You must wait for the lecturer to approve this module before proceeding.')
+        setShowNavErrorModal(true)
         return
       }
     }
@@ -718,8 +721,7 @@ export default function SessionPage() {
       m => moduleStatus[m.moduleNumber]?.status === 'approved'
     )
     if (!allApproved) {
-      setError('⚠️ You can only download once all modules have been approved by your lecturer.')
-      setTimeout(() => setError(''), 5000)
+      setShowDownloadModal(true)
       return
     }
 
@@ -860,19 +862,18 @@ export default function SessionPage() {
       <div>
         <Navbar />
         <div className="session-page">
-          <div className="container">
-            <div className="error-container">
-              <div className="error-modal">
-                <button 
-                  className="error-close-btn"
-                  onClick={() => setError('')}
-                >
-                  ✕
-                </button>
-                <div className="error-icon">⚠️</div>
-                <h2>Cannot Proceed</h2>
-                <p>{error}</p>
-              </div>
+          <div className="error-container">
+            <div className="error-modal">
+              <button 
+                className="error-close-btn"
+                onClick={() => setError('')}
+                aria-label="Close error message"
+              >
+                ✕
+              </button>
+              <div className="error-icon">⚠️</div>
+              <h2>Cannot Proceed</h2>
+              <p>{error}</p>
             </div>
           </div>
         </div>
@@ -890,16 +891,85 @@ export default function SessionPage() {
     <div>
       <Navbar />
       <div className="session-page">
+        {/* ── DOWNLOAD MODAL ── */}
+        {showDownloadModal && (
+          <div className="modal-overlay" onClick={() => setShowDownloadModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button 
+                className="modal-close-btn" 
+                onClick={() => setShowDownloadModal(false)}
+                aria-label="Close dialog"
+              >
+                ✕
+              </button>
+              <div className="modal-header">
+                <h3>⚠️ Cannot Download</h3>
+              </div>
+              <div className="modal-body">
+                <p>You can only download once all modules have been approved by your lecturer.</p>
+                <p style={{ marginTop: '8px', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                  Please wait for your lecturer to review and approve all modules.
+                </p>
+              </div>
+              <div className="modal-actions">
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowDownloadModal(false)}
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── NAVIGATION ERROR MODAL ── */}
+        {showNavErrorModal && (
+          <div className="modal-overlay" onClick={() => setShowNavErrorModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button 
+                className="modal-close-btn" 
+                onClick={() => setShowNavErrorModal(false)}
+                aria-label="Close dialog"
+              >
+                ✕
+              </button>
+              <div className="modal-header">
+                <h3>⚠️ Navigation Restricted</h3>
+              </div>
+              <div className="modal-body">
+                <p>{navErrorMessage}</p>
+              </div>
+              <div className="modal-actions">
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowNavErrorModal(false)}
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── SUBMIT CONFIRMATION DIALOG ── */}
         {showSubmitDialog && (
           <div className="modal-overlay" onClick={() => setShowSubmitDialog(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button 
+                className="modal-close-btn" 
+                onClick={() => setShowSubmitDialog(false)}
+                disabled={submitting}
+                aria-label="Close dialog"
+              >
+                ✕
+              </button>
               <div className="modal-header">
                 <h3>📤 Submit Module {currentModule}?</h3>
               </div>
               <div className="modal-body">
                 <p><strong>Once submitted you can't edit until approved or revoked.</strong></p>
-                <p style={{ marginTop: '8px', color: '#666' }}>
+                <p style={{ marginTop: '8px', color: 'var(--ink-soft)' }}>
                   The lecturer will review your answers and provide feedback.
                 </p>
                 <div className="modal-actions">
