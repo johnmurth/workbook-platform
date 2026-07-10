@@ -931,8 +931,7 @@ export default function SessionPage() {
                 <h1>{workbook?.title}</h1>
                 <p className="session-subtitle">
                   Lecturer: {session?.lecturerName} • 
-                  Module {currentModule} of {totalModules} • 
-                  {approvedModules}/{totalModules} approved
+                  Module {currentModule} of {totalModules}
                 </p>
               </div>
               <div className="header-actions">
@@ -1084,12 +1083,14 @@ export default function SessionPage() {
         <div className="session-footer">
           <div className="container">
             <div className="footer-content">
-              <div>📝 {Object.keys(answers).reduce((total, key) => {
-                if (key.startsWith('module_')) {
-                  return total + Object.keys(answers[key] || {}).length
-                }
-                return total
-              }, 0)} answers saved across all modules</div>
+              <div style={{ display: 'none'}}>
+                📝 {Object.keys(answers).reduce((total, key) => {
+                  if (key.startsWith('module_')) {
+                    return total + Object.keys(answers[key] || {}).length
+                  }
+                  return total
+                }, 0)} answers saved across all modules
+              </div>
               <button onClick={() => navigate('/student')} className="btn btn-ghost">← Back to Dashboard</button>
             </div>
           </div>
