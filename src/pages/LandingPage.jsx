@@ -41,8 +41,8 @@ export default function LandingPage() {
             </div>
             <h1 className="hero-title">
               Course materials,<br />
-              <em>delivered and assessed</em><br />
-              with precision.
+              <em>Delivery</em> & 
+              <em> Assessment</em>
             </h1>
             <p className="hero-sub" style={{ margin: '0 auto' }}>
               {user
@@ -94,8 +94,8 @@ export default function LandingPage() {
           </div>
           <h1 className="hero-title">
             Course materials,<br />
-            <em>delivered and assessed</em><br />
-            with precision.
+            <em>Delivery</em> & <br />
+            <em>Assessment</em>
           </h1>
           <p className="hero-sub">
             WorkBook enables lecturers to distribute interactive course workbooks, 
