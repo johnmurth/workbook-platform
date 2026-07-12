@@ -122,38 +122,52 @@ export default function WorkbookStore() {
             </div>
           ) : (
             <div className="workbooks-grid">
-              {filteredWorkbooks.map(wb => (
-                <div key={wb.id} className="workbook-card card">
-                  <div className="workbook-badge">
-                    <span className="badge">{getFileIcon(wb.fileType)} {getFileTypeLabel(wb.fileType)}</span>
-                    {wb.price === 0 && <span className="badge badge-green">Free</span>}
-                  </div>
-                  
-                  <h3 className="workbook-title">{wb.title}</h3>
-                  <p className="workbook-description">{wb.description || 'No description provided'}</p>
-                  
-                  <div className="workbook-meta">
-                    <div className="lecturer-info">
-                      <span className="lecturer-icon">👨‍🏫</span>
-                      <span>{wb.lecturerName || 'Unknown Lecturer'}</span>
+              {filteredWorkbooks.map(wb => {
+                const isOwnWorkbook = user && wb.lecturerUid === user.uid
+
+                return (
+                  <div key={wb.id} className="workbook-card card">
+                    <div className="workbook-badge">
+                      <span className="badge">{getFileIcon(wb.fileType)} {getFileTypeLabel(wb.fileType)}</span>
+                      {wb.price === 0 && <span className="badge badge-green">Free</span>}
+                      {isOwnWorkbook && <span className="badge badge-blue">Your Workbook</span>}
                     </div>
-                    <div className="purchase-count">
-                      <span>🎓 {wb.totalPurchases || 0} purchased</span>
+
+                    <h3 className="workbook-title">{wb.title}</h3>
+                    <p className="workbook-description">{wb.description || 'No description provided'}</p>
+
+                    <div className="workbook-meta">
+                      <div className="lecturer-info">
+                        <span className="lecturer-icon">👨‍🏫</span>
+                        <span>{wb.lecturerName || 'Unknown Lecturer'}</span>
+                      </div>
+                      <div className="purchase-count">
+                        <span>🎓 {wb.totalPurchases || 0} purchased</span>
+                      </div>
                     </div>
+
+                    <div className="workbook-price">
+                      {wb.price === 0 ? 'Free' : `KES ${wb.price.toLocaleString()}`}
+                    </div>
+
+                    {isOwnWorkbook ? (
+                      <Link
+                        to={`/lecturer/workbook/${wb.id}/view`}
+                        className="btn btn-primary purchase-btn"
+                      >
+                        View Workbook →
+                      </Link>
+                    ) : (
+                      <Link
+                        to={user ? `/pay/${wb.id}` : '/login'}
+                        className="btn btn-primary purchase-btn"
+                      >
+                        {user ? 'Purchase Now →' : 'Login to Purchase'}
+                      </Link>
+                    )}
                   </div>
-                  
-                  <div className="workbook-price">
-                    {wb.price === 0 ? 'Free' : `KES ${wb.price.toLocaleString()}`}
-                  </div>
-                  
-                  <Link 
-                    to={user ? `/pay/${wb.id}` : '/login'} 
-                    className="btn btn-primary purchase-btn"
-                  >
-                    {user ? 'Purchase Now →' : 'Login to Purchase'}
-                  </Link>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

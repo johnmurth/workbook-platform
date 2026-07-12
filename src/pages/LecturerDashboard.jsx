@@ -364,7 +364,8 @@ export default function LecturerDashboard() {
                           padding: '12px 0',
                           borderBottom: '1px solid #eee',
                           opacity: wb.isDeleted ? 0.6 : 1,
-                          gap: '12px'
+                          gap: '12px',
+                          flexWrap: 'wrap'
                         }}
                       >
                         <div>
@@ -377,6 +378,25 @@ export default function LecturerDashboard() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                          {!wb.isDeleted && (
+                            <>
+                              <Link
+                                to={`/lecturer/workbook/${wb.id}/view`}
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setShowWorkbooksModal(false)}
+                              >
+                                👁️ View
+                              </Link>
+                              <Link
+                                to={`/lecturer/workbook/${wb.id}/edit`}
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setShowWorkbooksModal(false)}
+                              >
+                                ✏️ Edit
+                              </Link>
+                            </>
+                          )}
+
                           {wb.isDeleted ? (
                             <>
                               <button
@@ -528,6 +548,18 @@ export default function LecturerDashboard() {
                       <span className="module-count-badge">📚 {totalModules} modules</span>
                     </div>
                     <div className="table-actions">
+                      <Link
+                        to={`/lecturer/workbook/${selectedWorkbook.id}/view`}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        👁️ View Workbook
+                      </Link>
+                      <Link
+                        to={`/lecturer/workbook/${selectedWorkbook.id}/edit`}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        ✏️ Edit
+                      </Link>
                       <span className="table-info">
                         🟢 {selectedStudents.filter(s => s.isActive).length} active
                       </span>

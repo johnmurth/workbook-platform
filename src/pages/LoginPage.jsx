@@ -49,6 +49,11 @@ export default function LoginPage() {
                 value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" />
             </div>
+            <div style={{textAlign:'right', marginTop:'-8px', marginBottom:'20px'}}>
+              <Link to="/forgot-password" className="auth-link" style={{fontSize:'0.85rem'}}>
+                Forgot password?
+              </Link>
+            </div>
             <button className="btn btn-primary btn-lg" style={{width:'100%'}}
               type="submit" disabled={loading}>
               {loading ? <><span className="spinner" /> Signing in…</> : 'Sign In'}

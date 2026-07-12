@@ -4,18 +4,21 @@ import { useAuth } from './lib/AuthContext'
 import NavbarSpacer from './components/shared/NavbarSpacer'
 
 // Pages
-import LandingPage       from './pages/LandingPage'
-import LoginPage         from './pages/LoginPage'
-import RegisterPage      from './pages/RegisterPage'
-import LecturerDashboard from './pages/LecturerDashboard'
-import UploadWorkbook    from './pages/UploadWorkbook'
-import EditWorkbook      from './pages/EditWorkbook'
-import StudentDashboard  from './pages/StudentDashboard'
-import WorkbookStore     from './pages/WorkbookStore'
-import PaymentPage       from './pages/PaymentPage'
-import SessionPage       from './pages/SessionPage'
-import WatchSession      from './pages/WatchSession'
-import PaymentConfirm    from './pages/PaymentConfirm'
+import LandingPage        from './pages/LandingPage'
+import LoginPage          from './pages/LoginPage'
+import RegisterPage       from './pages/RegisterPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage  from './pages/ResetPasswordPage'
+import LecturerDashboard  from './pages/LecturerDashboard'
+import UploadWorkbook     from './pages/UploadWorkbook'
+import EditWorkbook       from './pages/EditWorkbook'
+import ViewWorkbook       from './pages/ViewWorkbook'
+import StudentDashboard   from './pages/StudentDashboard'
+import WorkbookStore      from './pages/WorkbookStore'
+import PaymentPage        from './pages/PaymentPage'
+import SessionPage        from './pages/SessionPage'
+import WatchSession       from './pages/WatchSession'
+import PaymentConfirm     from './pages/PaymentConfirm'
 
 function RequireAuth({ children, role }) {
   const { user, profile, loading } = useAuth()
@@ -33,10 +36,12 @@ export default function App() {
       
       <Routes>
         {/* Public */}
-        <Route path="/"         element={<LandingPage />} />
-        <Route path="/login"    element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/store"    element={<WorkbookStore />} />
+        <Route path="/"                element={<LandingPage />} />
+        <Route path="/login"           element={<LoginPage />} />
+        <Route path="/register"        element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password"  element={<ResetPasswordPage />} />
+        <Route path="/store"           element={<WorkbookStore />} />
 
         {/* Payment flow (auth required) */}
         <Route path="/pay/:workbookId" element={
@@ -60,6 +65,9 @@ export default function App() {
         }/>
         <Route path="/lecturer/workbook/:workbookId/edit" element={
           <RequireAuth role="lecturer"><EditWorkbook /></RequireAuth>
+        }/>
+        <Route path="/lecturer/workbook/:workbookId/view" element={
+          <RequireAuth role="lecturer"><ViewWorkbook /></RequireAuth>
         }/>
         <Route path="/lecturer/payments" element={
           <RequireAuth role="lecturer"><PaymentConfirm /></RequireAuth>

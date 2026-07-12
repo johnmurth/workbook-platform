@@ -250,7 +250,7 @@ export default function EditWorkbook() {
                 </div>
 
                 {/* NEW: Module Information Display */}
-                <div className="form-group">
+                <div className="form-group"  style={{display: 'none'}}>
                   <label>Module Information</label>
                   <div className="module-info-display">
                     <p>📚 {workbook?.totalModules || 0} Modules</p>
@@ -308,7 +308,7 @@ export default function EditWorkbook() {
 
             {/* Stats Sidebar */}
             <div className="edit-sidebar">
-              <div className="stats-card card">
+              <div className="stats-card card"  style={{display: 'none'}}>
                 <h3>📊 Performance Stats</h3>
                 <div className="stat-item">
                   <span>Total Purchases:</span>
@@ -347,7 +347,7 @@ export default function EditWorkbook() {
                 </a>
               </div>
 
-              <div className="tips-card card">
+              <div className="tips-card card" style={{display: 'none'}}>
                 <h3>💡 Tips for Success</h3>
                 <ul>
                   <li>Clear titles help students find your workbooks</li>
