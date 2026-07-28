@@ -38,6 +38,7 @@ export default function SessionPage() {
   const [nextAvailableModule, setNextAvailableModule] = useState(1)
 
   const saveTimeoutRef = useRef(null)
+  const answersRef = useRef(answers)
   const documentContainerRef = useRef(null)
   const contentContainerRef = useRef(null)
   const handleFieldChangeRef = useRef(null)
@@ -49,6 +50,10 @@ export default function SessionPage() {
   useEffect(() => {
     modulesRef.current = modules
   }, [modules])
+
+  useEffect(() => {
+    answersRef.current = answers
+  }, [answers])
 
   // ── Get the next available module number ──
   const getNextAvailableModule = (statusMap = moduleStatus, moduleList = modules) => {
@@ -64,14 +69,74 @@ export default function SessionPage() {
     return Math.min(nextModule, moduleList.length)
   }
 
+  // ── Cover page (Module 0) has no review step of its own, but it should
+  // lock the moment the student advances past it (commit trio gets locked
+  // on module_0 as soon as they move to Module 1) — not just once Module 1
+  // is submitted/reviewed ──
+  const isCoverPageLocked = () => {
+    if (answers['module_0']?.__commitLocked) return true
+    return modules.some(m => {
+      if (m.moduleNumber < 1) return false
+      const status = moduleStatus[m.moduleNumber]?.status
+      return status && status !== 'not_started'
+    })
+  }
+
   // ── Check if module is in read-only mode ──
   const isModuleReadOnly = (moduleNum) => {
+    if (moduleNum === 0) return isCoverPageLocked()
     const status = moduleStatus[moduleNum]?.status || 'not_started'
     return status === 'approved' || status === 'pending'
+  }
+  
+  // ── Check the commitment trio (I Commit / I Do Not Commit / Not Sure) ──
+  const hasSelectedCommitment = () => {
+    const container = documentContainerRef.current
+    if (!container) return true
+    const trio = container.querySelectorAll('.fillable-checkbox[data-commit-value]')
+    if (trio.length === 0) return true
+    return [...trio].some(cb => cb.dataset.checked === 'true')
+  }
+
+  const hasDeclinedCommitment = () => {
+    const container = documentContainerRef.current
+    if (!container) return false
+    return !!container.querySelector('.fillable-checkbox[data-commit-value="decline"][data-checked="true"]')
+  }
+
+  // ── Which trio option is currently selected, if any ("commit" | "decline" | "unsure" | null) ──
+  const getSelectedCommitmentValue = () => {
+    const container = documentContainerRef.current
+    if (!container) return null
+    const checked = container.querySelector('.fillable-checkbox[data-commit-value][data-checked="true"]')
+    return checked?.dataset.commitValue || null
+  }
+
+  // ── Gate the submit dialog on the same commit-trio rules as Next ──
+  const handleSubmitClick = () => {
+    if (!hasSelectedCommitment()) {
+      setNavErrorMessage('⚠️ Please select I Commit, I Do Not Commit, or Not Sure before submitting.')
+      setShowNavErrorModal(true)
+      return
+    }
+
+    const selectedValue = getSelectedCommitmentValue()
+    if (selectedValue !== 'commit') {
+      setNavErrorMessage(
+        selectedValue === 'decline'
+          ? '⚠️ You selected "I Do Not Commit," so you cannot submit this module.'
+          : '⚠️ You selected "Not Sure." Please select "I Commit" to submit this module.'
+      )
+      setShowNavErrorModal(true)
+      return
+    }
+
+    setShowSubmitDialog(true)
   }
 
   // ── Check if module can be edited ──
   const canEditModule = (moduleNum) => {
+    if (moduleNum === 0) return !isCoverPageLocked()
     const status = moduleStatus[moduleNum]?.status || 'not_started'
     return status === 'not_started' || status === 'revoked'
   }
@@ -148,7 +213,7 @@ export default function SessionPage() {
         setAnswers(sessionData.answers || {})
         setModuleProgress(sessionData.moduleProgress || {})
         setModuleStatus(sessionData.moduleStatus || {})
-        setCurrentModule(sessionData.currentModule || 1)
+        setCurrentModule(sessionData.currentModule ?? 1)
 
         const workbookRef = doc(db, 'workbooks', sessionData.workbookId)
         const workbookSnap = await getDoc(workbookRef)
@@ -216,10 +281,13 @@ export default function SessionPage() {
       setNextAvailableModule(nextAvail)
       
       // Load the appropriate module
-      let targetModule = sessionData.currentModule ?? 1
-      
-      // If current module is beyond next available, redirect to next available
-      if (targetModule > nextAvail) {
+      const hasCoverPage = modulesList.some(m => m.moduleNumber === 0)
+      let targetModule = sessionData.currentModule
+
+      if (targetModule === undefined || targetModule === null) {
+        // Brand-new session — land on the cover page if one exists
+        targetModule = hasCoverPage ? 0 : 1
+      } else if (targetModule > nextAvail) {
         targetModule = nextAvail
       }
       
@@ -297,6 +365,45 @@ export default function SessionPage() {
     }
     
     if (moduleNumber === currentModule) return
+
+    // Answers to actually persist for this navigation — normally just the
+    // current `answers` state, but if we're locking in a commitment below
+    // it gets replaced with the locked version before saving.
+    let answersForSave = answers
+
+      // ── COMMITMENT GATE: must pick one option, "I Do Not Commit" blocks ──
+      if (moduleNumber > currentModule) {
+        if (!hasSelectedCommitment()) {
+          setNavErrorMessage('⚠️ Please select I Commit, I Do Not Commit, or Not Sure before proceeding.')
+          setShowNavErrorModal(true)
+          return
+        }
+        const selectedValue = getSelectedCommitmentValue()
+        if (selectedValue !== 'commit') {
+          setNavErrorMessage(
+            selectedValue === 'decline'
+              ? '⚠️ You selected "I Do Not Commit," so you cannot proceed to the next module.'
+              : '⚠️ You selected "Not Sure." Please select "I Commit" to proceed to the next module.'
+          )
+          setShowNavErrorModal(true)
+          return
+        }
+
+        // ── LOCK THE COMMITMENT once "I Commit" is used to move forward ──
+        // "I Commit" is the only option that allows proceeding, and once
+        // used to advance, the trio can never be changed again.
+        if (selectedValue === 'commit') {
+          const moduleKey = `module_${currentModule}`
+          const alreadyLocked = answers[moduleKey]?.__commitLocked === true
+          if (!alreadyLocked) {
+            answersForSave = {
+              ...answers,
+              [moduleKey]: { ...(answers[moduleKey] || {}), __commitLocked: true }
+            }
+            setAnswers(answersForSave)
+          }
+        }
+      }
     
     // ── CHECK IF MODULE IS APPROVED (READ-ONLY ACCESS) ──
     const targetModuleStatus = moduleStatus[moduleNumber]?.status || 'not_started'
@@ -315,13 +422,13 @@ export default function SessionPage() {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
       }
-      saveAnswers(answers, true)
+      saveAnswers(answersForSave, true)
       
       // Load the approved module content
       await loadModuleContent(newModule)
       
       const moduleAnswerKey = `module_${moduleNumber}`
-      const moduleAns = answers[moduleAnswerKey] || {}
+      const moduleAns = answersForSave[moduleAnswerKey] || {}
       setModuleAnswers(moduleAns)
       
       await updateCurrentModuleInDB(moduleNumber)
@@ -356,7 +463,7 @@ export default function SessionPage() {
     
     // Check if current module is approved before allowing forward navigation
     if (moduleNumber > currentModule) {
-      const currentModuleStatus = moduleStatus[currentModule]?.status
+      const currentModuleStatus = moduleStatus[currentModule]?.status || 'not_started'
       if (currentModuleStatus !== 'approved' && currentModuleStatus !== 'not_started') {
         setNavErrorMessage('⚠️ You must wait for the lecturer to approve this module before proceeding.')
         setShowNavErrorModal(true)
@@ -375,13 +482,13 @@ export default function SessionPage() {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
-    saveAnswers(answers, true)
+    saveAnswers(answersForSave, true)
     
     // Load the new module content
     await loadModuleContent(newModule)
     
     const moduleAnswerKey = `module_${moduleNumber}`
-    const moduleAns = answers[moduleAnswerKey] || {}
+    const moduleAns = answersForSave[moduleAnswerKey] || {}
     setModuleAnswers(moduleAns)
     
     await updateCurrentModuleInDB(moduleNumber)
@@ -403,16 +510,31 @@ export default function SessionPage() {
     
     // Only allow editing for not_started or revoked
     if (!canEditModule(currentModule)) return
-    
+
+    // Don't allow editing the commit trio once it has been locked in
     const moduleKey = `module_${currentModule}`
-    const currentModuleAns = answers[moduleKey] || {}
+    const latestAnswers = answersRef.current
+    if (latestAnswers[moduleKey]?.__commitLocked) {
+      const container = documentContainerRef.current
+      const el = container?.querySelector(`[data-field-id="${fieldId}"]`)
+      if (el?.dataset?.commitValue) {
+        console.log('🔒 Commitment already locked, cannot change')
+        return
+      }
+    }
+
+    const currentModuleAns = latestAnswers[moduleKey] || {}
     const newModuleAns = { ...currentModuleAns, [fieldId]: value }
     
     const newAnswers = { 
-      ...answers, 
+      ...latestAnswers, 
       [moduleKey]: newModuleAns 
     }
     
+    // Update synchronously so a second onFieldChange firing in the SAME
+    // click (e.g. toggle() unchecking the old trio option, then checking
+    // the new one) sees this call's result instead of a stale snapshot.
+    answersRef.current = newAnswers
     setAnswers(newAnswers)
     setModuleAnswers(newModuleAns)
     
@@ -457,8 +579,7 @@ export default function SessionPage() {
   const lockOrUnlockDocument = (container) => {
     if (!container) return
     
-    const status = moduleStatus[currentModule]?.status || 'not_started'
-    const isReadOnly = status === 'approved' || status === 'pending'
+    const isReadOnly = isModuleReadOnly(currentModule)
     const canEdit = !isReadOnly && canEditModule(currentModule)
     
     // Lock or unlock contenteditable elements
@@ -481,8 +602,14 @@ export default function SessionPage() {
     })
     
     // Lock or unlock checkbox and radio elements
-    container.querySelectorAll('.fillable-checkbox, .fillable-radio').forEach(el => {
+    container.querySelectorAll('.fillable-checkbox, .fillable-radio, .commit-label-clickable').forEach(el => {
       if (isReadOnly || !canEdit) {
+        el.style.pointerEvents = 'none'
+        el.style.cursor = 'default'
+        el.style.opacity = '0.85'
+      } else if (el.dataset.commitLocked === 'true') {
+        // Leave the permanent commit-trio lock in place even though the
+        // module itself is still editable.
         el.style.pointerEvents = 'none'
         el.style.cursor = 'default'
         el.style.opacity = '0.85'
@@ -499,9 +626,20 @@ export default function SessionPage() {
     setSubmitting(true)
     try {
       const sessionRef = doc(db, 'WBsessions', sessionId)
-      
+
+      // ── Lock the commit trio permanently for this submission ──
+      // handleSubmitClick already guaranteed "commit" is selected before
+      // this can run, so we bake that in now alongside the pending status.
+      const moduleKey = `module_${currentModule}`
+      const newAnswers = {
+        ...answers,
+        [moduleKey]: { ...(answers[moduleKey] || {}), __commitLocked: true }
+      }
+      setAnswers(newAnswers)
+
       // Update module status to pending
       await updateDoc(sessionRef, {
+        answers: newAnswers,
         [`moduleStatus.${currentModule}`]: {
           status: 'pending',
           remarks: '',
@@ -544,6 +682,7 @@ export default function SessionPage() {
 
     const prevStatus = prevModuleStatusRef.current
     let justApproved = null
+    let justRevoked = null
 
     Object.keys(moduleStatus).forEach(key => {
       const moduleNum = Number(key)
@@ -552,9 +691,32 @@ export default function SessionPage() {
       if (!wasApproved && isApproved) {
         justApproved = moduleNum
       }
+
+      const wasRevoked = prevStatus[moduleNum]?.status === 'revoked'
+      const isRevoked = moduleStatus[moduleNum]?.status === 'revoked'
+      if (!wasRevoked && isRevoked) {
+        justRevoked = moduleNum
+      }
     })
 
     prevModuleStatusRef.current = moduleStatus
+
+    // ── Reopen the commit trio when a lecturer revokes this module ──
+    if (justRevoked !== null) {
+      const moduleKey = `module_${justRevoked}`
+      setAnswers(prevAnswers => {
+        if (!prevAnswers[moduleKey]?.__commitLocked) return prevAnswers
+        const updated = {
+          ...prevAnswers,
+          [moduleKey]: { ...prevAnswers[moduleKey], __commitLocked: false }
+        }
+        const sessionRef = doc(db, 'WBsessions', sessionId)
+        updateDoc(sessionRef, { answers: updated }).catch(err =>
+          console.error('Error clearing commit lock on revoke:', err)
+        )
+        return updated
+      })
+    }
 
     // Only auto-advance if the module that JUST flipped to approved
     // is the module the student is currently sitting on
@@ -578,15 +740,17 @@ export default function SessionPage() {
     const sessionRef = doc(db, 'WBsessions', sessionId)
     const unsubscribe = onSnapshot(sessionRef, (snap) => {
       if (snap.exists()) {
+        // Skip snapshots caused by our own pending local writes —
+        // they can contain stale `answers` and just clobber active typing
+        if (snap.metadata.hasPendingWrites) return
+
         const data = snap.data()
         const freshModuleStatus = data.moduleStatus || {}
-
         setAnswers(data.answers || {})
         setModuleProgress(data.moduleProgress || {})
         setModuleStatus(freshModuleStatus)
         setLastSaved(new Date())
 
-        // Use modulesRef (always current) instead of stale `modules`
         if (modulesRef.current.length > 0) {
           const nextAvail = getNextAvailableModule(freshModuleStatus, modulesRef.current)
           setNextAvailableModule(nextAvail)
@@ -597,26 +761,24 @@ export default function SessionPage() {
   }, [sessionId])
 
   // Apply answers to DOM when module content changes
+  // Effect 1: runs only when a NEW module's content loads
   useEffect(() => {
     if (!documentContainerRef.current || !currentModuleContent || loadingModule) return
-    
     const container = documentContainerRef.current
-    
-    attachListeners(
-      container,
-      (fieldId, value) => handleFieldChangeRef.current(fieldId, value)
-    )
-    
+
+    attachListeners(container, (fieldId, value) => handleFieldChangeRef.current(fieldId, value))
+
     const moduleKey = `module_${currentModule}`
-    const moduleAns = answers[moduleKey] || {}
-    loadSavedAnswers(container, moduleAns)
-    
-    // Lock or unlock based on status
-    lockOrUnlockDocument(container)
-    
+    loadSavedAnswers(container, answers[moduleKey] || {})
+
     container.scrollTop = 0
-    
-  }, [currentModuleContent, currentModule, loadingModule, moduleStatus])
+  }, [currentModuleContent, currentModule, loadingModule]) // no moduleStatus here
+
+  // Effect 2: just locks/unlocks — doesn't touch text content
+  useEffect(() => {
+    if (!documentContainerRef.current) return
+    lockOrUnlockDocument(documentContainerRef.current)
+  }, [moduleStatus, currentModule, currentModuleContent])
 
   // ── Render module status badge ──
   const renderStatusBadge = () => {
@@ -664,8 +826,10 @@ export default function SessionPage() {
   }
 
   // ── Render submit button ──
-  const renderSubmitButton = () => {
-    const status = moduleStatus[currentModule]?.status || 'not_started'
+    const renderSubmitButton = () => {
+      if (currentModule === 0) return null // cover page has no review step
+
+      const status = moduleStatus[currentModule]?.status || 'not_started'
     
     // For approved modules, show read-only message
     if (status === 'approved') {
@@ -699,7 +863,7 @@ export default function SessionPage() {
         <div className="submit-section">
           <button 
             className="btn btn-primary btn-submit"
-            onClick={() => setShowSubmitDialog(true)}
+            onClick={handleSubmitClick}
           >
             📤 Submit Module for Review
           </button>
@@ -1064,16 +1228,17 @@ export default function SessionPage() {
                       {moduleProgress[currentModule] || 0}% complete
                     </div>
                     <div className="module-nav-buttons-top">
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => {
-                          const prevModuleNum = currentModule - 1
-                          if (prevModuleNum >= 1) handleModuleChange(prevModuleNum)
-                        }}
-                        disabled={currentModule === 1}
-                      >
-                        ← Prev
-                      </button>
+                      {currentModule !== 0 && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => {
+                            const prevModuleNum = currentModule - 1
+                            if (prevModuleNum >= 0) handleModuleChange(prevModuleNum)
+                          }}
+                        >
+                          ← Prev
+                        </button>
+                      )}
                       <button
                         className="btn btn-primary btn-sm"
                         onClick={() => {
@@ -1119,16 +1284,17 @@ export default function SessionPage() {
                 {renderSubmitButton()}
                 
                 <div className="module-nav-buttons-bottom">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      const prevModuleNum = currentModule - 1
-                      if (prevModuleNum >= 1) handleModuleChange(prevModuleNum)
-                    }}
-                    disabled={currentModule === 1}
-                  >
-                    ← Previous Module
-                  </button>
+                  {currentModule !== 0 && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        const prevModuleNum = currentModule - 1
+                        if (prevModuleNum >= 0) handleModuleChange(prevModuleNum)
+                      }}
+                    >
+                      ← Previous Module
+                    </button>
+                  )}
                   <button
                     className="btn btn-primary"
                     onClick={() => {

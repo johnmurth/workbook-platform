@@ -8,6 +8,12 @@ import Navbar from '../components/shared/Navbar'
 import './WorkbookStore.css'
 import { getFileIcon, getFileTypeLabel } from '../lib/fileUtils'
 
+// Trims text to a max length and appends "..." only if it was actually cut.
+const truncateText = (text, maxLength = 200) => {
+  if (!text) return ''
+  return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}...` : text
+}
+
 export default function WorkbookStore() {
   const { user } = useAuth()
   const [workbooks, setWorkbooks] = useState([])
@@ -134,7 +140,7 @@ export default function WorkbookStore() {
                     </div>
 
                     <h3 className="workbook-title">{wb.title}</h3>
-                    <p className="workbook-description">{wb.description || 'No description provided'}</p>
+                    <p className="workbook-description">{truncateText(wb.description) || 'No description provided'}</p>
 
                     <div className="workbook-meta">
                       <div className="lecturer-info">

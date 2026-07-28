@@ -174,7 +174,7 @@ exports.initiateMpesaPayment = onCall(
       return {
         success: true,
         checkoutRequestId,
-        purchaseId: purchaseId,  // ← ADD THIS
+        purchaseId: purchaseId,
         message: "STK Push sent. Check your phone to complete payment.",
       };
     } catch (err) {
@@ -199,7 +199,7 @@ exports.mpesaCallback = onRequest(async (req, res) => {
       res.status(200).send({ ResultCode: 0, ResultDesc: "Accepted" });
       return;
     }
-1
+
     const checkoutRequestId = callback.CheckoutRequestID;
     const resultCode = callback.ResultCode;
     const resultDesc = callback.ResultDesc;
@@ -248,8 +248,20 @@ exports.mpesaCallback = onRequest(async (req, res) => {
       const purchaseRef = db.collection("WBpurchases").doc(purchaseId);
       const existingPurchase = await purchaseRef.get();
 
-      if (existingPurchase.exists) {
-        // Already has a session — link it to this transaction and finish
+      // FIX: the frontend's handlePurchase() pre-creates this exact
+      // WBpurchases doc with status:'pending' *before* the STK push even
+      // finishes (see the "KEY FIX" comment in PaymentPage.jsx). That
+      // means by the time this callback runs, existingPurchase.exists is
+      // ALWAYS true for a normal successful flow — it does not mean a
+      // session/completed purchase already exists. The old check here
+      // (`if (existingPurchase.exists)`) was matching that pending doc,
+      // short-circuiting before a session was ever created, and linking
+      // an undefined sessionId to the transaction. We only want to skip
+      // session creation if a purchase is already marked 'completed'
+      // (e.g. a duplicate/retry callback for a workbook the user already
+      // owns).
+      if (existingPurchase.exists && existingPurchase.data().status === "completed") {
+        // Already has a completed session — link this transaction to it and finish.
         await txnRef.update({ sessionId: existingPurchase.data().sessionId });
         res.status(200).send({ ResultCode: 0, ResultDesc: "Accepted" });
         return;
@@ -265,8 +277,8 @@ exports.mpesaCallback = onRequest(async (req, res) => {
         workbookUrl: workbook.fileUrl,
         studentUid: txn.uid,
         studentName,
-        lecturerUid: workbook.lecturerUid,  // ← Make sure this is included
-        lecturerName: workbook.lecturerName,  // ← Make sure this is included
+        lecturerUid: workbook.lecturerUid,
+        lecturerName: workbook.lecturerName,
         downloadLimit: workbook.downloadLimit || 3,
         downloadCount: 0,
         active: true,
@@ -274,8 +286,8 @@ exports.mpesaCallback = onRequest(async (req, res) => {
         lastActive: admin.firestore.FieldValue.serverTimestamp(),
         answers: {},
         moduleProgress: {},
-        currentModule: 1,
-        totalModules: workbook.totalModules || 1  // ← Make sure this is included
+        currentModule: 0,
+        totalModules: workbook.totalModules || 1
       });
 
       await purchaseRef.set({
@@ -287,6 +299,7 @@ exports.mpesaCallback = onRequest(async (req, res) => {
         lecturerUid: workbook.lecturerUid,
         lecturerName: workbook.lecturerName,
         sessionId: sessionRef.id,
+        checkoutRequestId,
         mpesaReceiptNumber,
         purchaseDate: admin.firestore.FieldValue.serverTimestamp(),
         status: "completed",
@@ -308,6 +321,30 @@ exports.mpesaCallback = onRequest(async (req, res) => {
         resultDesc,
         failedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      // The frontend's onSnapshot listener watches WBpurchases, not
+      // WBmpesaTransactions — without this, a failed/wrong-PIN payment
+      // never reaches the frontend and the page waits forever.
+      const purchaseId = `${txn.uid}_${txn.workbookId}`;
+      const purchaseRef = db.collection("WBpurchases").doc(purchaseId);
+      const existingPurchase = await purchaseRef.get();
+
+      // Don't clobber a purchase that's already completed (e.g. a retry
+      // after an earlier successful payment for the same workbook).
+      if (!existingPurchase.exists || existingPurchase.data().status !== "completed") {
+        await purchaseRef.set(
+          {
+            workbookId: txn.workbookId,
+            studentUid: txn.uid,
+            status: "failed",
+            resultCode,
+            resultDesc,
+            failedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
       logger.info(`Payment failed for ${checkoutRequestId}: ${resultDesc}`);
     }
 

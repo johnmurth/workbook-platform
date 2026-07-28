@@ -80,7 +80,9 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
     return `<span class="fillable-text" data-field-id="${id}" data-placeholder="${match}" contenteditable="true" role="textbox" style="display:inline-block;min-width:${width}px;background:#fef9e6;border-bottom:2px dotted #1a6b3c;padding:0 8px;color:#aaa;">${match}</span>`
   })
 
-  // Checkboxes
+  // Checkboxes — just assign an ID here. Trio classification (I Commit /
+  // I Do Not Commit / Not Sure) happens AFTER the HTML becomes real DOM,
+  // below, since that's tag-safe and won't break on formatting splits.
   html = html.replace(/[☐□]/g, () => {
     const id = `checkbox_${fieldId++}`
     fields.push({ id, type: 'checkbox' })
@@ -97,6 +99,60 @@ export const processDocumentForFillable = async (arrayBuffer, onFieldChange) => 
   // STEP 4: Parse into DOM then handle shape markers and table cells
   const container = document.createElement('div')
   container.innerHTML = html
+
+  // ── Classify the I Commit / I Do Not Commit / Not Sure trio using real
+  // DOM text (tag-safe — this can't be broken by bold/spacing splits) ──
+  const phraseTest = {
+    commit: /^i\s+commit$/i,
+    decline: /^i\s+do\s+not\s+commit$/i,
+    unsure: /^not\s+sure$/i
+  }
+  const classifyLabel = (text) => {
+    if (phraseTest.decline.test(text)) return 'decline'
+    if (phraseTest.commit.test(text)) return 'commit'
+    if (phraseTest.unsure.test(text)) return 'unsure'
+    return null
+  }
+
+  const ancestors = new Set()
+  container.querySelectorAll('.fillable-checkbox').forEach(cb => {
+    const ancestor = cb.closest('p, tr, td, li, div')
+    if (ancestor) ancestors.add(ancestor)
+  })
+
+  ancestors.forEach(ancestor => {
+    const boxes = [...ancestor.querySelectorAll('.fillable-checkbox')]
+    if (boxes.length < 2) return
+
+    const segments = ancestor.textContent.split('☐')
+    if (segments.length - 1 !== boxes.length) return // structure doesn't line up, skip safely
+
+    let matchedAny = false
+    const values = boxes.map((_, i) => {
+      const before = (segments[i] || '').trim().replace(/\s+/g, ' ')
+      const after = (segments[i + 1] || '').trim().replace(/\s+/g, ' ')
+      const value = classifyLabel(before) || classifyLabel(after)
+      if (value) matchedAny = true
+      return value
+    })
+
+    if (matchedAny) {
+      boxes.forEach((cb, i) => {
+        if (values[i]) cb.dataset.commitValue = values[i]
+      })
+    }
+  })
+
+  // Link each trio label word to its checkbox, so tapping the words works too
+  container.querySelectorAll('.commit-label').forEach(label => {
+    const value = label.dataset.commitLabel
+    const targetCheckbox = container.querySelector(`.fillable-checkbox[data-commit-value="${value}"]`)
+    if (targetCheckbox) {
+      label.dataset.commitTarget = targetCheckbox.dataset.fieldId
+      label.classList.add('commit-label-clickable')
+      label.style.cursor = 'pointer'
+    }
+  })
 
   // Replace shape markers
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
@@ -208,10 +264,28 @@ export const attachListeners = (container, onFieldChange) => {
     cb.parentNode.replaceChild(fresh, cb)
 
     const toggle = () => {
+      // Once the commit trio has been locked (see loadSavedAnswers), none
+      // of the three boxes can be changed anymore — not even to switch
+      // between "Not Sure" and "I Do Not Commit".
+      if (fresh.dataset.commitValue && fresh.dataset.commitLocked === "true") return
+
       const alreadyChecked = fresh.dataset.checked === "true"
-      const group = fresh.closest("tr, p, li, td")
-      const siblings = group ? [...group.querySelectorAll(".fillable-checkbox")] : []
-      const isGrouped = siblings.length > 1
+      const isCommitTrio = !!fresh.dataset.commitValue
+
+      // The commit trio must always be mutually exclusive across the WHOLE
+      // document, regardless of how the markup groups them (separate <td>s,
+      // separate <p>s, etc). Relying on closest("tr, p, li, td") breaks this
+      // whenever each option lives in its own cell/paragraph, since then
+      // querySelectorAll only ever finds the single box being clicked —
+      // which is why unchecking the other two silently stopped happening.
+      let siblings
+      if (isCommitTrio) {
+        siblings = [...container.querySelectorAll('.fillable-checkbox[data-commit-value]')]
+      } else {
+        const group = fresh.closest("tr, p, li, td")
+        siblings = group ? [...group.querySelectorAll(".fillable-checkbox")] : []
+      }
+      const isGrouped = isCommitTrio || siblings.length > 1
 
       if (isGrouped) {
         siblings.forEach(sib => {
@@ -269,6 +343,17 @@ export const attachListeners = (container, onFieldChange) => {
     fresh.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); fresh.click() } })
   })
 
+  container.querySelectorAll('.commit-label-clickable').forEach(label => {
+    const fresh = label.cloneNode(true)
+    label.parentNode.replaceChild(fresh, label)
+    fresh.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const targetId = fresh.dataset.commitTarget
+      const checkbox = container.querySelector(`.fillable-checkbox[data-field-id="${targetId}"]`)
+      if (checkbox) checkbox.click()
+    })
+  })
+
   container.querySelectorAll('.fillable-text').forEach(input => {
     const id = input.dataset.fieldId
     const placeholder = input.dataset.placeholder || '_______________'
@@ -294,11 +379,32 @@ export const attachListeners = (container, onFieldChange) => {
 // ============================================================
 export const loadSavedAnswers = (container, savedAnswers) => {
   if (!container || !savedAnswers) return
+
+  // ── Resolve the commit trio to AT MOST one checked box ──
+  // Safety net for any previously-saved data where all three ended up
+  // `true` (from the old grouping bug). We pick whichever one is the
+  // most likely "real" answer using field insertion order, since object
+  // key order reflects chronological save order in this app.
+  const trioTrueFieldIds = Object.entries(savedAnswers)
+    .filter(([fieldId, value]) => {
+      const el = container.querySelector(`[data-field-id="${fieldId}"]`)
+      return el?.dataset?.commitValue && (value === true || value === 'true')
+    })
+    .map(([fieldId]) => fieldId)
+  const winningTrioFieldId = trioTrueFieldIds.length > 0
+    ? trioTrueFieldIds[trioTrueFieldIds.length - 1]
+    : null
+
+  const commitLocked = savedAnswers.__commitLocked === true || savedAnswers.__commitLocked === 'true'
+
   Object.entries(savedAnswers).forEach(([fieldId, value]) => {
     const el = container.querySelector(`[data-field-id="${fieldId}"]`)
     if (!el) return
     if (el.classList.contains('fillable-checkbox')) {
-      const checked = value === true || value === 'true'
+      let checked = value === true || value === 'true'
+      if (el.dataset.commitValue) {
+        checked = fieldId === winningTrioFieldId
+      }
       el.dataset.checked = String(checked)
       el.setAttribute('aria-checked', String(checked))
       el.textContent = checked ? '✓' : '☐'
@@ -325,4 +431,25 @@ export const loadSavedAnswers = (container, savedAnswers) => {
       el.style.color = value ? '#1a6b3c' : '#aaa'
     }
   })
+
+  // ── Apply the permanent commit lock, if this module has one ──
+  // Locks all three trio boxes so none of them can be changed anymore,
+  // once the student has proceeded forward having selected "I Commit".
+  if (commitLocked) {
+    container.querySelectorAll('.fillable-checkbox[data-commit-value]').forEach(el => {
+      el.dataset.commitLocked = 'true'
+      el.style.pointerEvents = 'none'
+      el.style.opacity = '0.85'
+      el.style.cursor = 'default'
+      el.title = '🔒 Locked — you already committed'
+    })
+  } else {
+    container.querySelectorAll('.fillable-checkbox[data-commit-value]').forEach(el => {
+      delete el.dataset.commitLocked
+      el.style.pointerEvents = ''
+      el.style.opacity = ''
+      el.style.cursor = ''
+      el.title = ''
+    })
+  }
 }

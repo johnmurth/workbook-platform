@@ -71,7 +71,6 @@
 }
 .payment-methods {
   background: var(--accent-bg);
-  padding: 20px;
   border-radius: var(--radius);
   margin-bottom: 24px;
 }
@@ -187,6 +186,7 @@
   font-size: 12px;
   color: #888;
   margin-top: 8px;
+  text-align: center;
 }
 
 /* Pending payment styles */
@@ -249,6 +249,28 @@
 .error-text {
   color: #dc3545;
   margin-bottom: 16px;
+  font-size: 14px;
+}
+
+/* Success payment styles */
+.success-payment {
+  text-align: center;
+  padding: 10px 0;
+}
+
+.success-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.success-payment h4 {
+  color: #1a6b3c;
+  margin-bottom: 8px;
+}
+
+.success-text {
+  color: #1a6b3c;
+  margin-bottom: 8px;
   font-size: 14px;
 }
 

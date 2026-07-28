@@ -1,9 +1,10 @@
 /**
  * Detect section headers in document HTML
  * Matches patterns like: "SECTION 1:", "SECTION 2:", etc.
+ * Case-sensitive: only matches literal uppercase "SECTION"
  */
 export const detectSections = (html) => {
-  const sectionRegex = /SECTION\s+(\d+):\s*([^<]*?)(?=<|$)/gi
+  const sectionRegex = /SECTION\s+(\d+):\s*([^<]*?)(?=<|$)/g
   const sections = []
   let match
 
@@ -64,7 +65,7 @@ export const splitIntoModules = (html, sections) => {
     let content = html.substring(startIdx, endIdx).trim()
     
     // Remove the "SECTION X:" header from the content itself
-    const contentWithoutHeader = content.replace(/^SECTION\s+\d+:\s*[^<]*?(?=<|$)/i, '').trim()
+    const contentWithoutHeader = content.replace(/^SECTION\s+\d+:\s*[^<]*?(?=<|$)/, '').trim()
     
     modules.push({
       number: current.number,
@@ -126,9 +127,10 @@ export const groupFieldsByModule = (modules) => {
 
 /**
  * Rename section headers to module headers in HTML
+ * Case-sensitive: only matches literal uppercase "SECTION"
  */
 export const renameSectionsToModules = (html) => {
-  return html.replace(/SECTION\s+(\d+):/gi, (match, num) => {
+  return html.replace(/SECTION\s+(\d+):/g, (match, num) => {
     return `Module ${num}:`
   })
 }
