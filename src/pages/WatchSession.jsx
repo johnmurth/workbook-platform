@@ -35,6 +35,7 @@ export default function WatchSession() {
   const documentReadyRef = useRef(false)
   const moduleContentCache = useRef({})
   const [lecturerLockedModule, setLecturerLockedModule] = useState(null)
+  const prevRevokedRef = useRef({})
 
   // ── Load session + modules ──
   useEffect(() => {
@@ -165,9 +166,11 @@ export default function WatchSession() {
       setCurrentModule(moduleToLoad.moduleNumber)
       documentReadyRef.current = true
       
-      // Set remarks for current module from Firestore
+      // Set remarks for current module from Firestore.
+      // Revoked modules start with a blank input — the saved remark is
+      // shown separately as read-only feedback (see savedRemarks below).
       const status = sessionData.moduleStatus?.[moduleToLoad.moduleNumber] || {}
-      setRemarks(status.remarks || '')
+      setRemarks(status.status === 'revoked' ? '' : (status.remarks || ''))
       
       await loadModuleContent(moduleToLoad)
       
@@ -189,9 +192,11 @@ export default function WatchSession() {
     
     setCurrentModule(moduleNumber)
     
-    // Load remarks from moduleStatus for the new module
+    // Load remarks from moduleStatus for the new module.
+    // Revoked modules start with a blank input — the saved remark is
+    // shown separately as read-only feedback (see savedRemarks below).
     const status = moduleStatus[moduleNumber] || {}
-    setRemarks(status.remarks || '')
+    setRemarks(status.status === 'revoked' ? '' : (status.remarks || ''))
     setShowRemarkError(false)
     
     loadModuleContent(newModule)
@@ -241,15 +246,19 @@ export default function WatchSession() {
         ...prev,
         [currentModule]: {
           ...prev[currentModule],
-          status: 'approved',
-          remarks: remarks || '',
+          status: 'revoked',
+          remarks: remarks.trim(),
           reviewedAt: new Date(),
           reviewedBy: user.uid
         }
       }))
+
+      // Blank the input now that the remark is saved as feedback —
+      // the buttons go inactive below until the student resubmits.
+      setRemarks('')
       
     } catch (err) {
-      console.error('Error approving module:', err)
+      console.error('Error revoking module:', err)
       setError('Failed to approve module. Please try again.')
       setTimeout(() => setError(''), 5000)
     } finally {
@@ -353,6 +362,18 @@ export default function WatchSession() {
     lockDocument(documentContainerRef.current)
   }, [currentModuleContent, loadingModule])
 
+  // ── Clear the remarks input once a revoked module gets resubmitted ──
+  // (status flips revoked -> pending), so the lecturer sees a blank
+  // field for new feedback instead of their old revoke reason.
+  useEffect(() => {
+    const status = moduleStatus[currentModule]?.status
+    const wasRevoked = prevRevokedRef.current[currentModule]
+    if (wasRevoked && status === 'pending') {
+      setRemarks('')
+    }
+    prevRevokedRef.current[currentModule] = status === 'revoked'
+  }, [moduleStatus, currentModule])
+
   const formatLastActive = () => {
     if (!lastActive) return 'Never'
     const diff = Math.floor((new Date() - lastActive) / 1000)
@@ -364,6 +385,9 @@ export default function WatchSession() {
   // ── Render approval panel ──
   const renderApprovalPanel = () => {
     const status = moduleStatus[currentModule]?.status || 'not_started'
+    // Read the feedback straight from saved status, not the `remarks`
+    // input state — that input gets blanked after a revoke.
+    const savedRemarks = moduleStatus[currentModule]?.remarks || ''
     
     if (status === 'not_started') {
       return (
@@ -481,18 +505,18 @@ export default function WatchSession() {
           {status === 'revoked' && (
             <>
               <div className="approval-message warning">
-                ❌ This module was revoked. Student can revise and resubmit.
+                ❌ This module was revoked. Waiting for the student to revise and resubmit.
               </div>
               
-              {remarks && (
+              {savedRemarks && (
                 <div className="remarks-display">
-                  <strong>Feedback:</strong>
-                  <p>{remarks}</p>
+                  <strong>Feedback sent:</strong>
+                  <p>{savedRemarks}</p>
                 </div>
               )}
               
               <div className="remarks-section">
-                <label htmlFor="remarks">Remarks (optional for approve, required for revoke)</label>
+                <label htmlFor="remarks">Remarks (available once the student resubmits)</label>
                 <textarea
                   id="remarks"
                   value={remarks}
@@ -500,28 +524,26 @@ export default function WatchSession() {
                     setRemarks(e.target.value)
                     if (showRemarkError) setShowRemarkError(false)
                   }}
-                  placeholder="Add feedback for the student..."
+                  placeholder="Waiting for resubmission..."
+                  disabled
                   className={`${showRemarkError ? 'error' : ''}`}
                 />
-                {showRemarkError && (
-                  <div className="error-message">⚠️ Remarks are required when revoking a module.</div>
-                )}
               </div>
               
               <div className="approval-actions">
                 <button
                   className="btn btn-success"
-                  onClick={handleApprove}
-                  disabled={actionLoading}
+                  disabled
+                  title="Available once the student resubmits"
                 >
-                  {actionLoading ? 'Processing...' : '✅ Approve'}
+                  ✅ Approve
                 </button>
                 <button
                   className="btn btn-danger"
-                  onClick={handleRevoke}
-                  disabled={actionLoading}
+                  disabled
+                  title="Available once the student resubmits"
                 >
-                  {actionLoading ? 'Processing...' : '❌ Revoke'}
+                  ❌ Revoke
                 </button>
               </div>
             </>

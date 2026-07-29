@@ -276,8 +276,10 @@ export default function SessionPage() {
       console.log('📦 Modules list:', modulesList.map(m => ({ number: m.moduleNumber, title: m.title, hasUrl: !!m.contentUrl })))
       setModules(modulesList)
       
-      // Calculate next available module
-      const nextAvail = getNextAvailableModule()
+      // Calculate next available module — pass the freshly-fetched status/modules
+      // explicitly, since `moduleStatus`/`modules` state won't have updated yet
+      // (setModuleStatus in loadSession and setModules above are both async).
+      const nextAvail = getNextAvailableModule(sessionData.moduleStatus || {}, modulesList)
       setNextAvailableModule(nextAvail)
       
       // Load the appropriate module
