@@ -373,39 +373,52 @@ export default function SessionPage() {
     // it gets replaced with the locked version before saving.
     let answersForSave = answers
 
-      // ── COMMITMENT GATE: must pick one option, "I Do Not Commit" blocks ──
-      if (moduleNumber > currentModule) {
-        if (!hasSelectedCommitment()) {
-          setNavErrorMessage('⚠️ Please select I Commit, I Do Not Commit, or Not Sure before proceeding.')
-          setShowNavErrorModal(true)
-          return
-        }
-        const selectedValue = getSelectedCommitmentValue()
-        if (selectedValue !== 'commit') {
-          setNavErrorMessage(
-            selectedValue === 'decline'
-              ? '⚠️ You selected "I Do Not Commit," so you cannot proceed to the next module.'
-              : '⚠️ You selected "Not Sure." Please select "I Commit" to proceed to the next module.'
-          )
-          setShowNavErrorModal(true)
-          return
-        }
+    // ── COMMITMENT GATE: must pick one option, "I Do Not Commit" blocks ──
+    // This only applies while the CURRENT module is still awaiting its
+    // first approval (`not_started` or `revoked`). Once a module has
+    // already been approved, the gate was already satisfied to get it
+    // there — `moduleStatus` is the source of truth for that, not a
+    // fresh read of the trio checkboxes in the DOM. Re-checking the DOM
+    // here is also unreliable on modules that have been through more
+    // than one revoke/resubmit cycle, since the saved trio state can
+    // render as unresolved right after a refresh — producing a false
+    // "Not Sure"/no-selection error even though the module is approved
+    // and navigation should be unconditionally allowed.
+    const currentModuleStatusForGate = moduleStatus[currentModule]?.status || 'not_started'
+    const gateApplies = moduleNumber > currentModule && currentModuleStatusForGate !== 'approved'
 
-        // ── LOCK THE COMMITMENT once "I Commit" is used to move forward ──
-        // "I Commit" is the only option that allows proceeding, and once
-        // used to advance, the trio can never be changed again.
-        if (selectedValue === 'commit') {
-          const moduleKey = `module_${currentModule}`
-          const alreadyLocked = answers[moduleKey]?.__commitLocked === true
-          if (!alreadyLocked) {
-            answersForSave = {
-              ...answers,
-              [moduleKey]: { ...(answers[moduleKey] || {}), __commitLocked: true }
-            }
-            setAnswers(answersForSave)
+    if (gateApplies) {
+      if (!hasSelectedCommitment()) {
+        setNavErrorMessage('⚠️ Please select I Commit, I Do Not Commit, or Not Sure before proceeding.')
+        setShowNavErrorModal(true)
+        return
+      }
+      const selectedValue = getSelectedCommitmentValue()
+      if (selectedValue !== 'commit') {
+        setNavErrorMessage(
+          selectedValue === 'decline'
+            ? '⚠️ You selected "I Do Not Commit," so you cannot proceed to the next module.'
+            : '⚠️ You selected "Not Sure." Please select "I Commit" to proceed to the next module.'
+        )
+        setShowNavErrorModal(true)
+        return
+      }
+
+      // ── LOCK THE COMMITMENT once "I Commit" is used to move forward ──
+      // "I Commit" is the only option that allows proceeding, and once
+      // used to advance, the trio can never be changed again.
+      if (selectedValue === 'commit') {
+        const moduleKey = `module_${currentModule}`
+        const alreadyLocked = answers[moduleKey]?.__commitLocked === true
+        if (!alreadyLocked) {
+          answersForSave = {
+            ...answers,
+            [moduleKey]: { ...(answers[moduleKey] || {}), __commitLocked: true }
           }
+          setAnswers(answersForSave)
         }
       }
+    }
     
     // ── CHECK IF MODULE IS APPROVED (READ-ONLY ACCESS) ──
     const targetModuleStatus = moduleStatus[moduleNumber]?.status || 'not_started'
@@ -742,21 +755,32 @@ export default function SessionPage() {
     const sessionRef = doc(db, 'WBsessions', sessionId)
     const unsubscribe = onSnapshot(sessionRef, (snap) => {
       if (snap.exists()) {
-        // Skip snapshots caused by our own pending local writes —
-        // they can contain stale `answers` and just clobber active typing
-        if (snap.metadata.hasPendingWrites) return
-
         const data = snap.data()
         const freshModuleStatus = data.moduleStatus || {}
-        setAnswers(data.answers || {})
-        setModuleProgress(data.moduleProgress || {})
+
+        // moduleStatus/moduleProgress are only ever written by the
+        // lecturer (approve/revoke) — the student never writes them, so
+        // a pending LOCAL write on this doc is always our own `answers`
+        // save, never a moduleStatus change. It's safe to apply these
+        // immediately and unconditionally. Skipping the whole snapshot
+        // whenever hasPendingWrites is true (doc-level, not field-level)
+        // is what made revoke/approve stop updating live once a few
+        // debounced writes were queued back to back.
         setModuleStatus(freshModuleStatus)
-        setLastSaved(new Date())
+        setModuleProgress(data.moduleProgress || {})
 
         if (modulesRef.current.length > 0) {
           const nextAvail = getNextAvailableModule(freshModuleStatus, modulesRef.current)
           setNextAvailableModule(nextAvail)
         }
+
+        // `answers` CAN legitimately be mid-flight from our own typing,
+        // so keep skipping just that field while a local write is pending
+        // — otherwise it'd clobber active edits.
+        if (snap.metadata.hasPendingWrites) return
+
+        setAnswers(data.answers || {})
+        setLastSaved(new Date())
       }
     })
     return () => unsubscribe()
@@ -781,6 +805,27 @@ export default function SessionPage() {
     if (!documentContainerRef.current) return
     lockOrUnlockDocument(documentContainerRef.current)
   }, [moduleStatus, currentModule, currentModuleContent])
+
+  // Effect 3: reapply the commit-trio lock to the DOM whenever it flips
+  // in `answers` (e.g. lecturer revokes → trio unlocks, or a resubmit
+  // re-locks it). Effect 1 only touches the DOM's commitLocked dataset
+  // when a NEW module's content loads, so without this, revoking a
+  // module you're already viewing left the trio's dataset stale until
+  // the next full reload.
+  useEffect(() => {
+    const container = documentContainerRef.current
+    if (!container || !currentModuleContent) return
+    const moduleKey = `module_${currentModule}`
+    const commitLocked = answers[moduleKey]?.__commitLocked === true
+    container.querySelectorAll('.fillable-checkbox[data-commit-value]').forEach(el => {
+      if (commitLocked) {
+        el.dataset.commitLocked = 'true'
+      } else {
+        delete el.dataset.commitLocked
+      }
+    })
+    lockOrUnlockDocument(container)
+  }, [answers, currentModule, currentModuleContent])
 
   // ── Render module status badge ──
   const renderStatusBadge = () => {
