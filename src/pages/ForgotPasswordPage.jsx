@@ -20,7 +20,7 @@ export default function ForgotPasswordPage() {
       // Reset link opens OUR reset-password page directly (not Firebase's
       // hosted page), carrying the oobCode as a query param.
       const actionCodeSettings = {
-        url: `${window.location.origin}/reset-password`,
+        url: `${window.location.origin}/login`,
         handleCodeInApp: true,
       }
 
