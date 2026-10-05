@@ -57,6 +57,10 @@ body {
   min-height: 100vh;
   padding: var(--nav-h) 24px 24px;
 }
+#root {
+  width: 100%;
+  min-width: 0;
+}
 
 h1, h2, h3, h4, h5 { 
   font-family: var(--font-display); 
@@ -592,6 +596,10 @@ input:focus, textarea:focus, select:focus {
 @media (max-width: 768px) {
   body {
     padding: var(--nav-h) 12px 12px;
+  }
+
+  .container {
+    padding: 0 4px;
   }
   
   .dashboard-header {

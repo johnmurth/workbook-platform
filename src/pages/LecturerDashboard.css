@@ -1,6 +1,24 @@
 /* src/pages/LecturerDashboard.css */
 
 .lecturer-dashboard {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.lecturer-dashboard > *,
+.dash-section,
+.tabs-wrapper,
+.students-table-container {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.table-actions {
+  flex-wrap: wrap;
+}
+
+.lecturer-dashboard {
   min-height: calc(100vh - var(--nav-h));
   padding: 24px 0 60px;
   background: #f5f7fa;
@@ -735,4 +753,9 @@
     padding: 1px 4px;
     min-width: 30px;
   }
+}
+
+.lecturer-dashboard .modal-content {
+  max-height: 85vh;
+  overflow-y: auto;
 }
